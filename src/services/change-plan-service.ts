@@ -1,4 +1,4 @@
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, DEFAULT_LIMITS } from "../policies/limits.js";
 import { isExcludedByGlob, matchesGlob } from "./glob-service.js";
 import { IgnoreEngine } from "./ignore-engine.js";
 import { PathSandbox } from "./path-sandbox.js";
@@ -12,6 +12,7 @@ export type ChangePlanLimits = {
   maxFiles: number;
   maxTreeEntries: number;
   maxTreePages: number;
+  maxDepth?: number;
 };
 
 type RelevantFile = {
@@ -29,10 +30,19 @@ export class ChangePlanService {
     private readonly sandbox: PathSandbox,
     limits: Partial<ChangePlanLimits> = {}
   ) {
+    const effective = clampEffectiveLimits({
+      max_tree_entries: limits.maxTreeEntries,
+      max_depth: limits.maxDepth
+    });
     this.limits = {
-      maxFiles: limits.maxFiles ?? DEFAULT_LIMITS.max_change_plan_files,
-      maxTreeEntries: limits.maxTreeEntries ?? DEFAULT_LIMITS.max_tree_entries,
-      maxTreePages: limits.maxTreePages ?? DEFAULT_LIMITS.max_change_plan_tree_pages
+      maxFiles: limits.maxFiles !== undefined && Number.isFinite(limits.maxFiles)
+        ? Math.max(1, Math.floor(limits.maxFiles))
+        : DEFAULT_LIMITS.max_change_plan_files,
+      maxTreeEntries: effective.max_tree_entries,
+      maxTreePages: limits.maxTreePages !== undefined && Number.isFinite(limits.maxTreePages)
+        ? Math.max(1, Math.floor(limits.maxTreePages))
+        : DEFAULT_LIMITS.max_change_plan_tree_pages,
+      maxDepth: effective.max_depth
     };
   }
 
@@ -42,7 +52,8 @@ export class ChangePlanService {
     const candidates = await this.collectCandidateFiles(options, warnings);
     const contextMap = await new ContextMapService(this.sandbox, {
       maxTreeEntries: this.limits.maxTreeEntries,
-      maxFiles: this.limits.maxFiles
+      maxFiles: this.limits.maxFiles,
+      maxDepth: this.limits.maxDepth
     }).map({
       goal: options.goal,
       max_files: this.limits.maxTreeEntries
@@ -70,7 +81,10 @@ export class ChangePlanService {
   }
 
   private async collectCandidateFiles(options: ChangePlanOptions, warnings: string[]): Promise<string[]> {
-    const treeService = new RepoTreeService(this.sandbox);
+    const treeService = new RepoTreeService(this.sandbox, {
+      max_tree_entries: this.limits.maxTreeEntries,
+      max_depth: this.limits.maxDepth
+    });
     const candidates: string[] = [];
     let cursor: string | undefined;
     let pages = 0;

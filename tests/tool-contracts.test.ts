@@ -32,6 +32,7 @@ import {
   DelegationWriteResultV3Schema
 } from "../src/contracts/delegation-v3.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../src/contracts/decision.contract.js";
+import { FetchFileInputSchema, FileContentSchema, ReadManyInputSchema, ReadManyResultSchema } from "../src/contracts/file.contract.js";
 import { GitInspectInputSchema, GitInspectResultSchema } from "../src/contracts/git-inspect.contract.js";
 import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
@@ -796,6 +797,18 @@ describe("tool catalog contracts", () => {
     expectFieldDescriptions(
       Object.entries(GitInspectResultSchema.shape).map(([field, schema]) => [`repo_git_inspect.output.${field}`, schema])
     );
+    expectFieldDescriptions(
+      Object.entries(FetchFileInputSchema.shape).map(([field, schema]) => [`repo_fetch_file.input.${field}`, schema])
+    );
+    expectFieldDescriptions(
+      Object.entries(FileContentSchema.shape).map(([field, schema]) => [`repo_fetch_file.output.${field}`, schema])
+    );
+    expectFieldDescriptions(
+      Object.entries(ReadManyInputSchema.shape).map(([field, schema]) => [`repo_read_many.input.${field}`, schema])
+    );
+    expectFieldDescriptions(
+      Object.entries(ReadManyResultSchema.shape).map(([field, schema]) => [`repo_read_many.output.${field}`, schema])
+    );
   });
 
   test("repo_write_changes schema accepts grouped same-file exact-match edits", () => {
@@ -1045,9 +1058,10 @@ describe("tool catalog contracts", () => {
     expect(parsed.success).toBe(true);
     expect(example.repos).toEqual([]);
     expect(example.limits).toEqual({
-      max_files: 50,
-      max_bytes_per_file: 128000,
-      max_total_bytes: 750000
+      max_files: 100,
+      max_bytes_per_file: 256000,
+      max_file_bytes: 10485760,
+      max_total_bytes: 1500000
     });
     expect(raw).not.toContain("/absolute/path/to/repo");
   });
@@ -1069,12 +1083,16 @@ describe("tool catalog contracts", () => {
         start_line: 1,
         end_line: 1,
         truncated: false,
+        has_more: false,
+        bytes_returned: 5,
         text: "hello",
         warnings: []
       }],
       skipped: [],
       matched_count: 1,
       returned_count: 1,
+      total_bytes_returned: 5,
+      remaining_count: 0,
       truncated: false
     });
     expect(parsed.success).toBe(true);
@@ -1327,7 +1345,7 @@ describe("tool catalog contracts", () => {
             "openWorldHint": false,
             "readOnlyHint": true,
           },
-          "description": "Use this when reading one known file or line range. Do not use it for broad repository review.",
+          "description": "Use this when reading one known file or line range; paginates large files safely. Not for broad review.",
           "inputKeys": [
             "end_line",
             "max_bytes",
@@ -1338,8 +1356,11 @@ describe("tool catalog contracts", () => {
           ],
           "name": "repo_fetch_file",
           "outputKeys": [
+            "bytes_returned",
             "end_line",
+            "has_more",
             "language",
+            "next_start_line",
             "path",
             "sha256",
             "size_bytes",
@@ -1358,7 +1379,7 @@ describe("tool catalog contracts", () => {
             "openWorldHint": false,
             "readOnlyHint": true,
           },
-          "description": "Use this when reading a bounded known set of files or globs. Do not use it to read an entire repository.",
+          "description": "Use this when reading a bounded known set of files or globs with cursor pagination. Not for whole repos.",
           "inputKeys": [
             "cursor",
             "exclude_globs",
@@ -1374,8 +1395,10 @@ describe("tool catalog contracts", () => {
             "files",
             "matched_count",
             "next_cursor",
+            "remaining_count",
             "returned_count",
             "skipped",
+            "total_bytes_returned",
             "truncated",
           ],
           "title": "Read bounded files",

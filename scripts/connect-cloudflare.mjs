@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { createConnectorRuntime } from "./connector-runtime.mjs";
+import { resolveNpmDevCommand } from "./platform-command.mjs";
 
 const DEFAULT_CONFIG_PATH = "./config.local.json";
 const DEFAULT_PORT = "8787";
@@ -17,11 +18,11 @@ ensureCloudflaredAvailable();
 function envValue(primaryName, legacyName, fallback) {
   const primary = process.env[primaryName];
   if (primary && primary.trim() !== "") {
-    return primary;
+    return primary.trim();
   }
   const legacy = legacyName ? process.env[legacyName] : undefined;
   if (legacy && legacy.trim() !== "") {
-    return legacy;
+    return legacy.trim();
   }
   return fallback;
 }
@@ -76,7 +77,8 @@ function startProcesses() {
   globalThis.console.log(`Local MCP URL: ${originUrl}/t/[token]/mcp`);
   globalThis.console.log("Use the printed ChatGPT MCP URL in ChatGPT Developer Mode as a Server URL.");
 
-  const mcp = spawn("npm", ["run", "dev"], {
+  const mcpCommand = resolveNpmDevCommand();
+  const mcp = spawn(mcpCommand.command, mcpCommand.args, {
     env: {
       ...process.env,
       GPT_REPO_CONFIG: configPath,

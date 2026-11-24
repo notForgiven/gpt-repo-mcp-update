@@ -1,11 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { request } from "node:http";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
+
+const require = createRequire(import.meta.url);
+const TSX_IMPORT_URL = pathToFileURL(require.resolve("tsx")).href;
 
 const children = new Set<ChildProcess>();
 
@@ -23,7 +28,7 @@ describe("server network boundary", () => {
 
   test("rejects an external bind unless it is explicitly authorized", async () => {
     const server = await startServer({ GPT_REPO_HOST: "0.0.0.0" });
-    const exited = await waitForExit(server.child, 4_000);
+    const exited = await waitForExit(server.child, 10_000);
 
     expect(exited).toBe(true);
     expect(server.child.exitCode).not.toBe(0);
@@ -92,6 +97,71 @@ describe("server network boundary", () => {
     expect(server.output()).toContain('"request_id":');
     expect(server.output()).not.toContain("do-not-log-this-session-id");
   });
+
+  test("auto-loads ./config.local.json from cwd when GPT_REPO_CONFIG is unset", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "gpt-repo-default-cfg-"));
+    const repoRoot = join(workdir, "demo-repo");
+    await mkdir(join(repoRoot, ".git"), { recursive: true });
+    await writeFile(join(workdir, "config.local.json"), JSON.stringify({
+      repos: [{ repo_id: "auto-demo", display_name: "Auto Demo", root: "./demo-repo" }],
+      limits: {}
+    }), "utf8");
+
+    const server = await startServerWithOptions({ cwd: workdir, omitConfigEnv: true });
+    await waitForHealth(server);
+    await waitForOutput(server, "(1 repo(s))");
+
+    const session = await initializeSession(server.port);
+    expect(session.status).toBe(200);
+    const listResponse = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "mcp-session-id": session.sessionId ?? ""
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "repo_list_roots", arguments: {} }
+      })
+    });
+    const listText = await listResponse.text();
+    expect(listResponse.ok).toBe(true);
+    expect(listText).toContain("auto-demo");
+  });
+
+  test("falls back to an empty registry when GPT_REPO_CONFIG is unset and ./config.local.json is absent", async () => {
+    const emptyWorkdir = await mkdtemp(join(tmpdir(), "gpt-repo-empty-cfg-"));
+    const server = await startServerWithOptions({ cwd: emptyWorkdir, omitConfigEnv: true });
+    await waitForHealth(server);
+    await waitForOutput(server, "starting with 0 approved repositories");
+  });
+
+  test("fails fast when GPT_REPO_CONFIG is explicitly set to a missing file", async () => {
+    const missingPath = join(tmpdir(), `gpt-repo-missing-${Date.now()}.json`);
+    const server = await startServer({ GPT_REPO_CONFIG: missingPath });
+    const exited = await waitForExit(server.child, 10_000);
+
+    expect(exited).toBe(true);
+    expect(server.child.exitCode).not.toBe(0);
+  });
+
+  test("fails fast when implicit ./config.local.json exists but references a missing repo.root", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "gpt-repo-missing-root-cfg-"));
+    await writeFile(join(workdir, "config.local.json"), JSON.stringify({
+      repos: [{ repo_id: "broken", display_name: "Broken", root: "./does-not-exist" }],
+      limits: {}
+    }), "utf8");
+
+    const server = await startServerWithOptions({ cwd: workdir, omitConfigEnv: true });
+    const exited = await waitForExit(server.child, 10_000);
+
+    expect(exited).toBe(true);
+    expect(server.child.exitCode).not.toBe(0);
+    expect(server.output()).not.toContain("starting with 0 approved repositories");
+  });
 });
 
 async function initializeSession(port: number): Promise<{ status: number; sessionId: string | null }> {
@@ -120,19 +190,34 @@ async function initializeSession(port: number): Promise<{ status: number; sessio
 }
 
 async function startServer(extraEnv: Record<string, string> = {}) {
+  return startServerWithOptions({ extraEnv });
+}
+
+async function startServerWithOptions(options: {
+  extraEnv?: Record<string, string>;
+  cwd?: string;
+  omitConfigEnv?: boolean;
+} = {}) {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "gpt-repo-network-boundary-"));
   const configPath = join(fixtureRoot, "config.json");
   const port = await freePort();
   await writeFile(configPath, JSON.stringify({ repos: [], limits: {} }), "utf8");
   let output = "";
-  const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      GPT_REPO_CONFIG: configPath,
-      PORT: String(port),
-      ...extraEnv
-    },
+  const serverEntry = resolve(process.cwd(), "src/server.ts");
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PORT: String(port),
+    ...options.extraEnv
+  };
+  if (options.omitConfigEnv) {
+    delete env.GPT_REPO_CONFIG;
+    delete env.REPO_READER_CONFIG;
+  } else if (!options.extraEnv?.GPT_REPO_CONFIG && !options.extraEnv?.REPO_READER_CONFIG) {
+    env.GPT_REPO_CONFIG = configPath;
+  }
+  const child = spawn(process.execPath, ["--import", TSX_IMPORT_URL, serverEntry], {
+    cwd: options.cwd ?? process.cwd(),
+    env,
     stdio: ["ignore", "pipe", "pipe"]
   });
   children.add(child);
@@ -145,12 +230,15 @@ async function startServer(extraEnv: Record<string, string> = {}) {
   child.once("exit", () => {
     children.delete(child);
     void rm(fixtureRoot, { recursive: true, force: true });
+    if (options.cwd) {
+      void rm(options.cwd, { recursive: true, force: true });
+    }
   });
   return { child, output: () => output, port };
 }
 
 async function waitForHealth(server: Awaited<ReturnType<typeof startServer>>): Promise<void> {
-  const deadline = Date.now() + 4_000;
+  const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     if (server.child.exitCode !== null || server.child.signalCode !== null) {
       throw new Error(`Server exited before becoming healthy.\n${server.output()}`.trim());

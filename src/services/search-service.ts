@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, type EffectiveLimits } from "../policies/limits.js";
 import { RepoReaderError } from "../runtime/errors.js";
 import { FileClassifier } from "./file-classifier.js";
 import { isExcludedByGlob, matchesGlob } from "./glob-service.js";
@@ -20,14 +20,26 @@ export type SearchOptions = {
 export class SearchService {
   private readonly ignoreEngine = new IgnoreEngine();
   private readonly classifier = new FileClassifier(this.ignoreEngine);
+  private readonly maxSearchResultsLimit: number;
+  private readonly treeLimits: Partial<Pick<EffectiveLimits, "max_depth" | "max_tree_entries">>;
 
-  constructor(private readonly sandbox: PathSandbox) {}
+  constructor(
+    private readonly sandbox: PathSandbox,
+    limits: Partial<Pick<EffectiveLimits, "max_search_results" | "max_depth" | "max_tree_entries">> = {}
+  ) {
+    const effective = clampEffectiveLimits(limits);
+    this.maxSearchResultsLimit = effective.max_search_results;
+    this.treeLimits = {
+      max_depth: effective.max_depth,
+      max_tree_entries: effective.max_tree_entries
+    };
+  }
 
   async search(options: SearchOptions) {
-    const maxResults = Math.min(options.max_results ?? DEFAULT_LIMITS.max_search_results, DEFAULT_LIMITS.max_search_results);
+    const maxResults = Math.min(options.max_results ?? this.maxSearchResultsLimit, this.maxSearchResultsLimit);
     const contextLines = Math.min(options.context_lines ?? 0, 5);
     const start = parseCursor(options.cursor);
-    const tree = await new RepoTreeService(this.sandbox).tree({
+    const tree = await new RepoTreeService(this.sandbox, this.treeLimits).tree({
       include_files: true,
       respect_default_excludes: true
     });

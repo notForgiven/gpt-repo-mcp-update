@@ -1,4 +1,4 @@
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits } from "../policies/limits.js";
 import { FileClassifier } from "./file-classifier.js";
 import { isExcludedByGlob, matchesGlob } from "./glob-service.js";
 import { IgnoreEngine } from "./ignore-engine.js";
@@ -17,6 +17,7 @@ export type TaskInventoryLimits = {
   maxFiles: number;
   maxTreePages: number;
   maxFileBytes: number;
+  maxDepth?: number;
 };
 
 type TaskInventoryItem = {
@@ -36,12 +37,21 @@ export class TaskInventoryService {
     private readonly sandbox: PathSandbox,
     limits: Partial<TaskInventoryLimits> = {}
   ) {
+    const effective = clampEffectiveLimits({
+      max_search_results: limits.maxSearchResults,
+      max_tree_entries: limits.maxTreeEntries,
+      max_task_inventory_files: limits.maxFiles,
+      max_task_inventory_tree_pages: limits.maxTreePages,
+      max_task_inventory_file_bytes: limits.maxFileBytes,
+      max_depth: limits.maxDepth
+    });
     this.limits = {
-      maxSearchResults: limits.maxSearchResults ?? DEFAULT_LIMITS.max_search_results,
-      maxTreeEntries: limits.maxTreeEntries ?? DEFAULT_LIMITS.max_tree_entries,
-      maxFiles: limits.maxFiles ?? DEFAULT_LIMITS.max_task_inventory_files,
-      maxTreePages: limits.maxTreePages ?? DEFAULT_LIMITS.max_task_inventory_tree_pages,
-      maxFileBytes: limits.maxFileBytes ?? DEFAULT_LIMITS.max_task_inventory_file_bytes
+      maxSearchResults: effective.max_search_results,
+      maxTreeEntries: effective.max_tree_entries,
+      maxFiles: effective.max_task_inventory_files,
+      maxTreePages: effective.max_task_inventory_tree_pages,
+      maxFileBytes: effective.max_task_inventory_file_bytes,
+      maxDepth: effective.max_depth
     };
   }
 
@@ -50,7 +60,10 @@ export class TaskInventoryService {
     const labels = new Set(options.labels ?? DEFAULT_LABELS);
     const start = parseCursor(options.cursor);
     const warnings: string[] = [];
-    const treeService = new RepoTreeService(this.sandbox);
+    const treeService = new RepoTreeService(this.sandbox, {
+      max_tree_entries: this.limits.maxTreeEntries,
+      max_depth: this.limits.maxDepth
+    });
     const tasks: TaskInventoryItem[] = [];
     let scannedFileCount = 0;
     let scanComplete = true;

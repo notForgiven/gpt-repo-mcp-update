@@ -38,7 +38,7 @@ All tool errors return:
 | `BINARY_FILE_REJECTED` | A file read was blocked because the target appears to be binary. |
 | `SECRET_CANDIDATE_BLOCKED` | A file read was blocked because the path looks secret-sensitive, or a public environment template contains a secret-looking value. |
 | `DEFAULT_EXCLUDE_BLOCKED` | A file read was blocked by default exclude policy. |
-| `SIZE_LIMIT_EXCEEDED` | A file read exceeded the requested or configured byte limit. |
+| `SIZE_LIMIT_EXCEEDED` | A file exceeded the maximum streamable on-disk file size (`limits.max_file_bytes`, 10 MiB default / 50 MiB hard cap) or an operation exceeded its configured byte limit. For `repo_fetch_file`, UTF-8 files within `max_file_bytes` that exceed `max_bytes` return a bounded paginated chunk instead of failing. |
 | `WRITE_DISABLED` | A write was requested for a repo that has not enabled `writes.enabled`. |
 | `WRITE_DENIED_GLOB` | A write target matched a configured denied glob or secret-sensitive path. |
 | `WRITE_NOT_ALLOWED_GLOB` | A write target did not match the repo's configured allowed write globs. |
@@ -77,4 +77,4 @@ All tool errors return:
 
 ## Non-Envelope Skip Reasons
 
-Some successful tools also return stable warning or skip reason strings inside their existing success output shapes. For example, `repo_read_many.skipped[].reason` may contain file policy codes such as `SECRET_CANDIDATE_BLOCKED`, `BINARY_FILE_REJECTED`, or the read-many limit reason `MAX_TOTAL_BYTES_EXCEEDED`.
+Some successful tools also return stable warning or skip reason strings inside their existing success output shapes. For example, `repo_read_many.skipped[].reason` may contain file policy codes such as `SECRET_CANDIDATE_BLOCKED`, `BINARY_FILE_REJECTED`, `SIZE_LIMIT_EXCEEDED`, or the read-many budget reason `MAX_TOTAL_BYTES_EXCEEDED` (when budget-skipped files remain, `truncated` is `true` and `next_cursor` resumes at the first skipped file so none are dropped).

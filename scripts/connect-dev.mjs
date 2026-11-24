@@ -10,17 +10,32 @@ import {
   resolveNpmDevCommand
 } from "./platform-command.mjs";
 
-const CONFIG_PATH = "./config.local.json";
-const PORT = "8787";
+const DEFAULT_CONFIG_PATH = "./config.local.json";
+const DEFAULT_PORT = "8787";
 const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
 const publicPathToken = randomBytes(16).toString("hex");
 const runtime = createConnectorRuntime();
+
+function envValue(primaryName, legacyName, fallback) {
+  const primary = process.env[primaryName];
+  if (primary && primary.trim() !== "") {
+    return primary.trim();
+  }
+  const legacy = legacyName ? process.env[legacyName] : undefined;
+  if (legacy && legacy.trim() !== "") {
+    return legacy.trim();
+  }
+  return fallback;
+}
+
+const CONFIG_PATH = envValue("GPT_REPO_CONFIG", "REPO_READER_CONFIG", DEFAULT_CONFIG_PATH);
+const PORT = envValue("PORT", undefined, DEFAULT_PORT);
 
 async function ensureConfigExists() {
   try {
     await access(CONFIG_PATH, constants.F_OK);
   } catch {
-    globalThis.console.error("Missing config.local.json. Run: cp config.example.json config.local.json");
+    globalThis.console.error(`Missing ${CONFIG_PATH}. Run: cp config.example.json ${CONFIG_PATH}`);
     process.exit(1);
   }
 }

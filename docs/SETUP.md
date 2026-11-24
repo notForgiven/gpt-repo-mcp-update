@@ -75,6 +75,8 @@ and verify its `/health` endpoint.
 
 Run `cp config.example.json config.local.json`. This creates a valid empty local config with no approved repositories. `config.local.json` is ignored by git and should stay uncommitted.
 
+When `GPT_REPO_CONFIG` and `REPO_READER_CONFIG` are unset or blank, the server (`npm run dev`, `npm start`, and `npm run connect`) automatically loads `./config.local.json` from the current working directory (falling back to zero repositories if absent, and failing fast if an explicit env path is missing or any config is invalid). Relative repository `root` paths resolve relative to the config file's directory, and UTF-8 BOM JSON files parse cleanly. `npm run connect` also honors `GPT_REPO_CONFIG`, `REPO_READER_CONFIG`, and `PORT`.
+
 ## Add A Repository
 
 ```bash
@@ -126,6 +128,27 @@ write-policy, operations-policy, and limits fields are rejected so a misspelled
 permission or limit cannot silently fall back to its default. Correct the
 reported key before using `add`, `list`, `check`, `doctor`, or starting the
 server.
+
+## Read Limits
+
+The top-level `limits` block in `config.local.json` controls bounded single-file
+and multi-file read budgets. Values are validated against hard upper caps so a
+tool call or config typo cannot trigger unbounded reads:
+
+| Limit | Default | Hard cap | Purpose |
+| --- | ---: | ---: | --- |
+| `max_files` | `100` | `250` | Maximum files returned per `repo_read_many` call |
+| `max_bytes_per_file` | `256000` (256 KB) | `2097152` (2 MiB) | Maximum UTF-8 response bytes per file chunk |
+| `max_total_bytes` | `1500000` (1.5 MB) | `4194304` (4 MiB) | Maximum combined UTF-8 bytes per `repo_read_many` call |
+| `max_file_bytes` | `10485760` (10 MiB) | `52428800` (50 MiB) | Maximum on-disk file size allowed for streaming reads |
+| `max_read_many_tree_pages` | `10` | `25` | Maximum tree pages scanned for `repo_read_many` glob discovery |
+
+`config.example.json` ships with these defaults. Requests with larger per-call
+limits are clamped to the configured values. Additional optional `limits` fields
+(`max_search_results`, `max_tree_entries`, `max_depth`, `max_diff_bytes`,
+`max_task_inventory_files`, `max_task_inventory_tree_pages`,
+`max_task_inventory_file_bytes`, and `max_project_brief_doc_bytes`) are also
+validated and propagated to runtime services.
 
 ## Repository-owned validation profiles
 

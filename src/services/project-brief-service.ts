@@ -1,5 +1,5 @@
 import { extname } from "node:path";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, type EffectiveLimits } from "../policies/limits.js";
 import type { ContextMapEntryPoint } from "../contracts/context-map.contract.js";
 import type { ProjectBriefInclude, ProjectBriefInput } from "../contracts/project.contract.js";
 import { ProjectProductBriefSchema } from "../contracts/project-product-brief.contract.js";
@@ -63,8 +63,20 @@ type PackageJson = {
 
 export class ProjectBriefService {
   private readonly ignoreEngine = new IgnoreEngine();
+  private readonly maxDocBytes: number;
+  private readonly maxTreeEntries: number;
+  private readonly maxDepth: number;
 
-  constructor(private readonly repo: RepoConfig, private readonly sandbox: PathSandbox) {}
+  constructor(
+    private readonly repo: RepoConfig,
+    private readonly sandbox: PathSandbox,
+    limits: Partial<Pick<EffectiveLimits, "max_project_brief_doc_bytes" | "max_tree_entries" | "max_depth">> = {}
+  ) {
+    const effective = clampEffectiveLimits(limits);
+    this.maxDocBytes = effective.max_project_brief_doc_bytes;
+    this.maxTreeEntries = effective.max_tree_entries;
+    this.maxDepth = effective.max_depth;
+  }
 
   async brief(options: ProjectBriefOptions = {}) {
     const include = new Set(options.include ?? DEFAULT_INCLUDE);
@@ -76,10 +88,13 @@ export class ProjectBriefService {
       ? ProjectProductBriefSchema.parse({ ...baseProductBrief, delegation_checkpoint: delegationDrift.checkpoint })
       : baseProductBrief;
     if (delegationDrift.checkpoint.status === "due") warnings.push("DELEGATION_PRODUCT_CHECKPOINT_DUE");
-    const tree = await new RepoTreeService(this.sandbox).tree({
+    const tree = await new RepoTreeService(this.sandbox, {
+      max_tree_entries: this.maxTreeEntries,
+      max_depth: this.maxDepth
+    }).tree({
       include_files: true,
-      max_depth: 4,
-      page_size: MAX_TREE_ENTRIES,
+      max_depth: Math.min(4, this.maxDepth),
+      page_size: Math.min(MAX_TREE_ENTRIES, this.maxTreeEntries),
       respect_default_excludes: true,
       exclude_prefixes: [".chatgpt"]
     });
@@ -101,7 +116,10 @@ export class ProjectBriefService {
       : [];
     const recentGitWarnings = include.has("recent_git") ? await this.collectRecentGitWarnings(warnings) : [];
     const likelyEntrypoints = detectEntrypoints(filePaths, packageJson);
-    const contextMap = await new ContextMapService(this.sandbox).map({
+    const contextMap = await new ContextMapService(this.sandbox, {
+      maxTreeEntries: this.maxTreeEntries,
+      maxDepth: this.maxDepth
+    }).map({
       focus_paths: likelyEntrypoints.filter((path) => path !== "package.json"),
       max_files: 40
     });
@@ -193,7 +211,7 @@ export class ProjectBriefService {
   private async readTextIfPresent(path: string, warnings: string[]): Promise<string | undefined> {
     try {
       const resolved = await this.sandbox.resolve(path);
-      const result = await readFilePrefix(resolved.absolutePath, DEFAULT_LIMITS.max_project_brief_doc_bytes);
+      const result = await readFilePrefix(resolved.absolutePath, this.maxDocBytes);
       if (result.truncated) warnings.push(`FILE_TRUNCATED:${path}`);
       return result.buffer.toString("utf8");
     } catch {

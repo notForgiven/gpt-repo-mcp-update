@@ -5,7 +5,7 @@ import type {
   GitInspectResult
 } from "../contracts/git-inspect.contract.js";
 import { delegationControlArtifactGitExcludes, isDelegationControlArtifact } from "../policies/delegation-control-artifacts.js";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, DEFAULT_LIMITS, type EffectiveLimits } from "../policies/limits.js";
 import { RepoReaderError } from "../runtime/errors.js";
 import { decodeUtf8Safe, runGitReadOnly, runGitReadOnlyBuffer } from "./git-exec.js";
 import {
@@ -55,8 +55,14 @@ type ParsedStatusEntry = {
 
 export class GitInspectService {
   private readonly ignoreEngine = new IgnoreEngine();
+  private readonly maxDiffBytes: number;
 
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    limits: Partial<Pick<EffectiveLimits, "max_diff_bytes">> = {}
+  ) {
+    this.maxDiffBytes = clampEffectiveLimits(limits).max_diff_bytes;
+  }
 
   async inspect(input: GitInspectInput): Promise<GitInspectResult> {
     const rootReal = await assertGitRepoConfined(this.root);
@@ -482,7 +488,7 @@ export class GitInspectService {
     const validatedPaths = await this.validateOptionalPaths(rootReal, input.paths);
     const statOnly = input.stat_only ?? false;
     const maxFiles = clampPositive(input.max_files, 50, 100);
-    const maxBytes = clampPositive(input.max_bytes, DEFAULT_LIMITS.max_diff_bytes, DEFAULT_LIMITS.max_diff_bytes);
+    const maxBytes = clampPositive(input.max_bytes, this.maxDiffBytes, this.maxDiffBytes);
 
     if (!ref && !compareRef && input.staged === false && input.unstaged === false) {
       return {

@@ -28,14 +28,22 @@ export const semanticReviewHandler: ToolHandler = async (input, context) => safe
 
 export const taskInventoryHandler: ToolHandler = async (input, context) => safeTool<TaskInventoryInput>("repo_task_inventory", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new TaskInventoryService(new PathSandbox(repo.root)).inventory(args);
+  const limits = context.registry.effectiveLimits;
+  const result = await new TaskInventoryService(new PathSandbox(repo.root), {
+    maxSearchResults: limits.max_search_results,
+    maxTreeEntries: limits.max_tree_entries,
+    maxFiles: limits.max_task_inventory_files,
+    maxTreePages: limits.max_task_inventory_tree_pages,
+    maxFileBytes: limits.max_task_inventory_file_bytes,
+    maxDepth: limits.max_depth
+  }).inventory(args);
   audit({ tool: "repo_task_inventory", repo_id: args.repo_id, counts: { tasks: result.returned_count }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned ${result.returned_count} task inventory items.`);
 });
 
 export const decisionMemoryHandler: ToolHandler = async (input, context) => safeTool<DecisionLogInput>("repo_decision_memory", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new DecisionLogService(new PathSandbox(repo.root)).decisionLog({ include_sources: args.include_sources });
+  const result = await new DecisionLogService(new PathSandbox(repo.root), context.registry.effectiveLimits).decisionLog({ include_sources: args.include_sources });
   audit({ tool: "repo_decision_memory", repo_id: args.repo_id, counts: { decisions: result.decisions.length, conventions: result.conventions.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned ${result.decisions.length} decisions and ${result.conventions.length} conventions.`);
 });

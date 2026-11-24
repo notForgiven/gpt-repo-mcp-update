@@ -1,5 +1,5 @@
 import { readdir } from "node:fs/promises";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, type EffectiveLimits } from "../policies/limits.js";
 import { RepoReaderError } from "../runtime/errors.js";
 import { IgnoreEngine } from "./ignore-engine.js";
 import { PathSandbox, validateRepoPath } from "./path-sandbox.js";
@@ -28,13 +28,22 @@ type ParsedCursor =
 
 export class RepoTreeService {
   private readonly ignoreEngine = new IgnoreEngine();
+  private readonly maxDepthLimit: number;
+  private readonly maxTreeEntriesLimit: number;
 
-  constructor(private readonly sandbox: PathSandbox) {}
+  constructor(
+    private readonly sandbox: PathSandbox,
+    limits: Partial<Pick<EffectiveLimits, "max_depth" | "max_tree_entries">> = {}
+  ) {
+    const effective = clampEffectiveLimits(limits);
+    this.maxDepthLimit = effective.max_depth;
+    this.maxTreeEntriesLimit = effective.max_tree_entries;
+  }
 
   async tree(options: TreeOptions) {
     const start = validateRepoPath(options.path ?? ".");
-    const maxDepth = Math.min(options.max_depth ?? DEFAULT_LIMITS.max_depth, DEFAULT_LIMITS.max_depth);
-    const pageSize = Math.max(1, Math.min(options.page_size ?? DEFAULT_LIMITS.max_tree_entries, DEFAULT_LIMITS.max_tree_entries));
+    const maxDepth = Math.min(options.max_depth ?? this.maxDepthLimit, this.maxDepthLimit);
+    const pageSize = Math.max(1, Math.min(options.page_size ?? this.maxTreeEntriesLimit, this.maxTreeEntriesLimit));
     const cursor = parseCursor(options.cursor);
     const includeFiles = options.include_files ?? true;
     const respectDefaultExcludes = options.respect_default_excludes ?? true;

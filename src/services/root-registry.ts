@@ -1,55 +1,56 @@
-import { readFile } from "node:fs/promises";
-import { realpath } from "node:fs/promises";
-import { z } from "zod";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { readFile, realpath } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import type { z } from "zod";
+import {
+  clampEffectiveLimits,
+  clampReadLimits,
+  type EffectiveLimits,
+  type ReadLimits
+} from "../policies/limits.js";
 import { RepoReaderError } from "../runtime/errors.js";
-import { CodeIntelligenceConfigSchema, OperationsPolicyConfigSchema, WritePolicyConfigSchema } from "../config/schema.js";
+import { RepoConfigSchema, RepoReaderConfigSchema } from "../config/schema.js";
+import { parseConfigJson } from "../config/store.js";
 
-const RepoConfigSchema = z.object({
-  repo_id: z.string().min(1),
-  display_name: z.string().min(1),
-  root: z.string().min(1),
-  writes: WritePolicyConfigSchema.optional(),
-  operations: OperationsPolicyConfigSchema.optional()
-});
-
-const ConfigSchema = z.object({
-  repos: z.array(RepoConfigSchema).default([]),
-  limits: z.object({
-    max_files: z.number().int().positive().optional(),
-    max_bytes_per_file: z.number().int().positive().optional(),
-    max_total_bytes: z.number().int().positive().optional()
-  }).default({}),
-  code_intelligence: CodeIntelligenceConfigSchema.optional()
-});
-
-export type RepoConfig = z.infer<typeof RepoConfigSchema>;
-export type RepoReaderConfig = z.infer<typeof ConfigSchema>;
-type RepoReaderConfigInput = z.input<typeof ConfigSchema>;
+type ParsedRepoConfig = z.infer<typeof RepoConfigSchema>;
+export type RepoConfig = Omit<ParsedRepoConfig, "writes" | "operations"> & {
+  writes?: ParsedRepoConfig["writes"];
+  operations?: ParsedRepoConfig["operations"];
+};
+export type RepoReaderConfig = z.infer<typeof RepoReaderConfigSchema>;
+type RepoReaderConfigInput = z.input<typeof RepoReaderConfigSchema>;
 
 export class RootRegistry {
   private constructor(
     private readonly repos: RepoConfig[],
-    readonly limits: Required<RepoReaderConfig["limits"]>,
+    readonly limits: ReadLimits,
+    readonly effectiveLimits: EffectiveLimits,
     readonly codeIntelligence: RepoReaderConfig["code_intelligence"]
   ) {}
 
-  static async fromConfig(config: RepoReaderConfigInput): Promise<RootRegistry> {
-    const parsed = ConfigSchema.parse(config);
-    const repos = [];
+  static async fromConfig(
+    config: RepoReaderConfigInput,
+    options: { baseDir?: string } = {}
+  ): Promise<RootRegistry> {
+    const parsed = RepoReaderConfigSchema.parse(config);
+    const baseDir = options.baseDir ?? process.cwd();
+    const repos: RepoConfig[] = [];
     for (const repo of parsed.repos) {
-      repos.push({ ...repo, root: await realpath(repo.root) });
+      repos.push({ ...repo, root: await realpath(resolve(baseDir, repo.root)) });
     }
-    return new RootRegistry(repos, {
-      max_files: parsed.limits.max_files ?? DEFAULT_LIMITS.max_files,
-      max_bytes_per_file: parsed.limits.max_bytes_per_file ?? DEFAULT_LIMITS.max_bytes_per_file,
-      max_total_bytes: parsed.limits.max_total_bytes ?? DEFAULT_LIMITS.max_total_bytes
-    }, parsed.code_intelligence);
+    return new RootRegistry(
+      repos,
+      clampReadLimits(parsed.limits),
+      clampEffectiveLimits(parsed.limits),
+      parsed.code_intelligence
+    );
   }
 
   static async fromFile(configPath: string): Promise<RootRegistry> {
-    const raw = await readFile(configPath, "utf8");
-    return RootRegistry.fromConfig(JSON.parse(raw));
+    const resolvedPath = resolve(configPath);
+    const raw = await readFile(resolvedPath, "utf8");
+    return RootRegistry.fromConfig(parseConfigJson(raw) as RepoReaderConfigInput, {
+      baseDir: dirname(resolvedPath)
+    });
   }
 
   list(): Array<Pick<RepoConfig, "repo_id" | "display_name" | "root">> {

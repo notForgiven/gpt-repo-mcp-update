@@ -59,7 +59,10 @@ ChatGPT can:
 
 - list approved repositories and inspect their high-level structure;
 - search for code, text, usages, configuration, or likely entry points;
-- read one known file, a line range, or a bounded set of relevant files;
+- read one known file, paginate large files via streaming line ranges (up to
+  10 MiB on disk by default, configurable up to 50 MiB), or batch-read a
+  bounded set of relevant files or globs (up to 100 files / 1.5 MB by default,
+  configurable up to 250 files / 4 MiB) with resumable cursor pagination;
 - map file dependencies, symbol references, affected tests, and likely impact;
 - inspect read-only Git history, branches, tags, commit graphs, ref file trees,
   commits, blame, merge bases, and resolved refs without a shell;

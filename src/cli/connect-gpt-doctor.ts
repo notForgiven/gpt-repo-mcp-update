@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { readConfigDocument } from "../config/store.js";
 import { validateConfigDocument } from "../config/validation.js";
@@ -44,7 +44,7 @@ export async function runDoctor(configPath: string, io: DoctorIo): Promise<numbe
     const document = await readConfigDocument(configPath);
     io.stdout(`${basename(configPath) === "config.local.json" ? "PASS config.local.json found" : `PASS config found: ${basename(configPath)}`}`);
 
-    const result = await validateConfigDocument(document);
+    const result = await validateConfigDocument(document, { baseDir: dirname(configPath) });
     if (result.issues.length > 0) {
       fail(`config invalid: ${result.issues.length} issue(s) found`);
       for (const issue of result.issues) {

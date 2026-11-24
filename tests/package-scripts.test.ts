@@ -49,6 +49,8 @@ describe("package startup scripts", () => {
     expect(script).toContain("resolveNpmDevCommand");
     expect(script).toContain("resolveNgrokVersionCommand");
     expect(script).toContain("resolveNgrokTunnelCommand");
+    expect(script).toContain("GPT_REPO_CONFIG");
+    expect(script).toContain("REPO_READER_CONFIG");
     expect(script).not.toContain("shell:");
   });
 
@@ -64,6 +66,7 @@ describe("package startup scripts", () => {
     expect(script).toContain("trycloudflare\\.com");
     expect(script).toContain("ChatGPT MCP URL");
     expect(script).toContain("This is guess-resistance only, not authentication");
+    expect(script).toContain("resolveNpmDevCommand");
   });
 
   test("includes secure tunnel startup script and env example", async () => {
@@ -77,6 +80,7 @@ describe("package startup scripts", () => {
     expect(script).toContain("REPO_READER_LOG_FORMAT");
     expect(script).toContain("tunnel-client run");
     expect(script).toContain("Open ChatGPT connector settings");
+    expect(script).toContain("resolveNpmDevCommand");
     expect(script).not.toContain("REPO_READER_PUBLIC_PATH_TOKEN");
     expect(script).not.toContain("console.log(process.env.CONTROL_PLANE_API_KEY");
 

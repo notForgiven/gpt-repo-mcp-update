@@ -14,7 +14,10 @@ export type ConfigWarning = {
   message: string;
 };
 
-export async function validateConfigDocument(document: unknown): Promise<{
+export async function validateConfigDocument(
+  document: unknown,
+  options: { baseDir?: string } = {}
+): Promise<{
   config?: RepoReaderConfig;
   issues: ConfigIssue[];
   warnings: ConfigWarning[];
@@ -32,6 +35,7 @@ export async function validateConfigDocument(document: unknown): Promise<{
 
   const config = parsed.data;
   const rawRepos = getRawRepos(document);
+  const baseDir = options.baseDir ?? process.cwd();
   const issues: ConfigIssue[] = [];
   const warnings: ConfigWarning[] = [];
 
@@ -49,7 +53,7 @@ export async function validateConfigDocument(document: unknown): Promise<{
 
   const seenRoots = new Map<string, string>();
   for (const [index, repo] of config.repos.entries()) {
-    const rootPath = resolve(repo.root);
+    const rootPath = resolve(baseDir, repo.root);
     let stats: Awaited<ReturnType<typeof stat>>;
     try {
       stats = await stat(rootPath);

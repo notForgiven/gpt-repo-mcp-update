@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isAbsolute } from "node:path";
+import { HARD_LIMIT_CAPS } from "../policies/limits.js";
 import { DEFAULT_OPERATIONS_POLICY, SHIP_VALIDATION_TEST_PATH_GLOBS } from "../policies/operations-defaults.js";
 import { DEFAULT_WRITE_POLICY } from "../policies/write-defaults.js";
 
@@ -60,9 +61,11 @@ export const RepoConfigSchema = z.object({
 }).strict();
 
 export const LimitsConfigSchema = z.object({
-  max_files: PositiveIntSchema.optional(),
-  max_bytes_per_file: PositiveIntSchema.optional(),
-  max_total_bytes: PositiveIntSchema.optional(),
+  max_files: PositiveIntSchema.max(HARD_LIMIT_CAPS.max_files).optional(),
+  max_bytes_per_file: PositiveIntSchema.max(HARD_LIMIT_CAPS.max_bytes_per_file).optional(),
+  max_file_bytes: PositiveIntSchema.max(HARD_LIMIT_CAPS.max_file_bytes).optional(),
+  max_total_bytes: PositiveIntSchema.max(HARD_LIMIT_CAPS.max_total_bytes).optional(),
+  max_read_many_tree_pages: PositiveIntSchema.max(HARD_LIMIT_CAPS.max_read_many_tree_pages).optional(),
   max_search_results: PositiveIntSchema.optional(),
   max_tree_entries: PositiveIntSchema.optional(),
   max_task_inventory_files: PositiveIntSchema.optional(),

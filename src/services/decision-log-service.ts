@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, DEFAULT_LIMITS, type EffectiveLimits } from "../policies/limits.js";
 import { readFilePrefix } from "./bounded-read.js";
 import { IgnoreEngine } from "./ignore-engine.js";
 import { PathSandbox } from "./path-sandbox.js";
@@ -18,8 +18,17 @@ type SourceHit = {
 
 export class DecisionLogService {
   private readonly ignoreEngine = new IgnoreEngine();
+  private readonly maxTreeEntries: number;
+  private readonly maxDepth: number;
 
-  constructor(private readonly sandbox: PathSandbox) {}
+  constructor(
+    private readonly sandbox: PathSandbox,
+    limits: Partial<Pick<EffectiveLimits, "max_tree_entries" | "max_depth">> = {}
+  ) {
+    const effective = clampEffectiveLimits(limits);
+    this.maxTreeEntries = effective.max_tree_entries;
+    this.maxDepth = effective.max_depth;
+  }
 
   async decisionLog(options: DecisionLogOptions = {}) {
     const includeSources = new Set(options.include_sources ?? DEFAULT_SOURCES);
@@ -53,10 +62,13 @@ export class DecisionLogService {
   }
 
   private async collectSources(includeSources: Set<DecisionSource>, warnings: string[]): Promise<SourceHit[]> {
-    const tree = await new RepoTreeService(this.sandbox).tree({
+    const tree = await new RepoTreeService(this.sandbox, {
+      max_tree_entries: this.maxTreeEntries,
+      max_depth: this.maxDepth
+    }).tree({
       include_files: true,
-      max_depth: 4,
-      page_size: DEFAULT_LIMITS.max_tree_entries,
+      max_depth: Math.min(4, this.maxDepth),
+      page_size: this.maxTreeEntries,
       respect_default_excludes: true
     });
     if (tree.truncated) {

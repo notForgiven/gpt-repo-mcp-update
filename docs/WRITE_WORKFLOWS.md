@@ -108,9 +108,10 @@ Manual config remains supported. The following is a full policy-shape example fo
     }
   ],
   "limits": {
-    "max_files": 50,
-    "max_bytes_per_file": 128000,
-    "max_total_bytes": 750000
+    "max_files": 100,
+    "max_bytes_per_file": 256000,
+    "max_total_bytes": 1500000,
+    "max_file_bytes": 10485760
   }
 }
 ```

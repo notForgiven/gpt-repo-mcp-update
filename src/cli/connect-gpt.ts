@@ -2,8 +2,8 @@
 
 import { readFile, realpath, stat } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
-import { basename, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_OPERATIONS_POLICY, SHIP_VALIDATION_TEST_PATH_GLOBS } from "../policies/operations-defaults.js";
 import { DEFAULT_WRITE_POLICY } from "../policies/write-defaults.js";
 import { isNotFoundError } from "../runtime/fs-helpers.js";
@@ -156,9 +156,10 @@ async function handleAdd(args: string[], configPath: string, io: CliIo): Promise
     throw new CliError(`Duplicate repo_id: "${inferredId}".`);
   }
 
+  const configDir = dirname(configPath);
   const existingRoots = await Promise.all(config.repos.map(async (repo) => ({
     repo_id: repo.repo_id,
-    root: await canonicalizeForCompare(repo.root)
+    root: await canonicalizeForCompare(repo.root, configDir)
   })));
   if (existingRoots.some((entry) => entry.root === candidateRoot)) {
     throw new CliError(`Duplicate root: "${candidateRoot}".`);
@@ -221,7 +222,7 @@ async function handleRemove(args: string[], configPath: string, io: CliIo): Prom
 
 async function handleCheck(configPath: string, io: CliIo): Promise<number> {
   const document = await readConfigDocument(configPath);
-  const result = await validateConfigDocument(document);
+  const result = await validateConfigDocument(document, { baseDir: dirname(configPath) });
   if (result.issues.length > 0) {
     io.stderr(`FAIL ${result.issues.length} issue(s) found.`);
     for (const issue of result.issues) {
@@ -416,8 +417,8 @@ function normalizeRepoId(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-async function canonicalizeForCompare(root: string): Promise<string> {
-  const resolved = resolve(root);
+async function canonicalizeForCompare(root: string, baseDir: string): Promise<string> {
+  const resolved = resolve(baseDir, root);
   try {
     return await realpath(resolved);
   } catch (error) {
@@ -452,8 +453,18 @@ function defaultIo(): CliIo {
 
 class CliError extends Error {}
 
-const currentModule = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
-if (import.meta.url === currentModule) {
+function isDirectEntrypoint(): boolean {
+  if (!process.argv[1]) {
+    return false;
+  }
+  const modulePath = resolve(fileURLToPath(import.meta.url));
+  const invokedPath = resolve(process.argv[1]);
+  return process.platform === "win32"
+    ? modulePath.toLowerCase() === invokedPath.toLowerCase()
+    : modulePath === invokedPath;
+}
+
+if (isDirectEntrypoint()) {
   const code = await runConnectGptCli(process.argv.slice(2));
   process.exitCode = code;
 }

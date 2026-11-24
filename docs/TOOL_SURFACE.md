@@ -114,14 +114,22 @@ or likely entry points. Results include repo-relative paths and bounded context.
 
 ### `repo_fetch_file`
 
-**Read-only.** Reads one known UTF-8 text file or line range. Secret-looking
+**Read-only.** Reads one known UTF-8 text file or line range via streaming reads
+(up to 10 MiB on disk by default, configurable up to 50 MiB). Large files or
+ranges exceeding the per-file response budget (256 KB default, configurable up
+to 2 MiB) return a bounded chunk with `truncated`, `has_more`,
+`next_start_line`, and `bytes_returned` for safe pagination. Secret-looking
 paths remain blocked, and generated files require an explicit supported
 override.
 
 ### `repo_read_many`
 
-**Read-only.** Reads a bounded set of selected text files in one call. Use it
-after search or tree has narrowed the relevant paths.
+**Read-only.** Reads a bounded set of selected text files or globs in one call
+(up to 100 files and 1.5 MB total by default, configurable up to 250 files and
+4 MiB). Supports multi-page glob discovery, bounded per-file truncation without
+failing the batch, and resumable `next_cursor` pagination with
+`total_bytes_returned` and `remaining_count`. Use it after search or tree has
+narrowed the relevant paths.
 
 ### `repo_context_map`
 

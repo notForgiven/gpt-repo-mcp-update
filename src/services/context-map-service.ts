@@ -1,6 +1,6 @@
 import { dirname, join, normalize, parse } from "node:path";
 import { readFile } from "node:fs/promises";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, DEFAULT_LIMITS } from "../policies/limits.js";
 import { RepoTreeService } from "./repo-tree-service.js";
 import { readFilePrefix } from "./bounded-read.js";
 import type { PathSandbox } from "./path-sandbox.js";
@@ -18,6 +18,7 @@ type ContextMapOptions = Omit<ContextMapInput, "repo_id">;
 export type ContextMapLimits = {
   maxTreeEntries: number;
   maxFiles: number;
+  maxDepth?: number;
 };
 
 const SOURCE_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
@@ -41,15 +42,25 @@ export class ContextMapService {
     private readonly sandbox: PathSandbox,
     limits: Partial<ContextMapLimits> = {}
   ) {
+    const effective = clampEffectiveLimits({
+      max_tree_entries: limits.maxTreeEntries,
+      max_depth: limits.maxDepth
+    });
     this.limits = {
-      maxTreeEntries: limits.maxTreeEntries ?? DEFAULT_LIMITS.max_tree_entries,
-      maxFiles: limits.maxFiles ?? DEFAULT_LIMITS.max_change_plan_files
+      maxTreeEntries: effective.max_tree_entries,
+      maxFiles: limits.maxFiles !== undefined && Number.isFinite(limits.maxFiles)
+        ? Math.max(1, Math.floor(limits.maxFiles))
+        : DEFAULT_LIMITS.max_change_plan_files,
+      maxDepth: effective.max_depth
     };
   }
 
   async map(options: ContextMapOptions = {}): Promise<ContextMapResult> {
     const warnings: string[] = [];
-    const tree = await new RepoTreeService(this.sandbox).tree({
+    const tree = await new RepoTreeService(this.sandbox, {
+      max_tree_entries: this.limits.maxTreeEntries,
+      max_depth: this.limits.maxDepth
+    }).tree({
       include_files: true,
       include_generated: true,
       include_dependencies: true,

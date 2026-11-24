@@ -77,4 +77,24 @@ describe("IgnoreEngine", () => {
     expect(engine.isSensitiveCandidate(".env.anything")).toBe(true);
     expect(engine.isSensitiveCandidate("nested/.env.example")).toBe(true);
   });
+
+  test("allows standard repository-internal config files while keeping secrets blocked", () => {
+    const engine = new IgnoreEngine();
+
+    for (const safeConfig of [
+      ".github/workflows/ci.yml",
+      ".vscode/settings.json",
+      "tsconfig.json",
+      "eslint.config.js",
+      "vitest.config.ts",
+      "config/app.json",
+      "config.example.json",
+      ".eslintrc.json",
+      ".prettierrc",
+      ".npmrc"
+    ]) {
+      expect(engine.isIgnored(safeConfig)).toBe(false);
+      expect(engine.isSensitiveCandidate(safeConfig)).toBe(false);
+    }
+  });
 });

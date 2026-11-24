@@ -496,6 +496,55 @@ describe("connect-gpt config CLI", () => {
     expect(added.stderr).toContain("Unrecognized key");
     await expect(readFile(configPath, "utf8")).resolves.toBe(original);
   });
+
+  test("check, doctor, and duplicate-root detection resolve relative repo roots against the config file directory", async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), "connect-gpt-relroot-"));
+    const otherCwd = join(sandbox, "other-cwd");
+    const cfgDir = join(sandbox, "configs");
+    const repoRoot = join(sandbox, "my-repo");
+    await mkdir(otherCwd, { recursive: true });
+    await mkdir(cfgDir, { recursive: true });
+    await mkdir(join(repoRoot, ".git"), { recursive: true });
+    await writeDoctorPackageJson(otherCwd);
+
+    const configPath = join(cfgDir, "config.local.json");
+    await writeFile(configPath, JSON.stringify({
+      repos: [{ repo_id: "rel-repo", display_name: "Rel Repo", root: "../my-repo" }],
+      limits: {}
+    }, null, 2));
+
+    const checked = await runCli(["check", "--config", configPath], otherCwd);
+    expect(checked.code).toBe(0);
+    expect(checked.stdout).toContain("PASS 1 repo(s) validated.");
+
+    const doctor = await runCli(["doctor", "--config", configPath], otherCwd, {
+      ngrokInstalled: async () => true,
+      hasActiveNgrokTunnel: async () => false,
+      isPortInUse: async () => false,
+      isGitWorktreeDirty: async () => false
+    });
+    expect(doctor.code).toBe(0);
+    expect(doctor.stdout).toContain("PASS config validated: 1 repo(s)");
+
+    const duplicate = await runCli(["add", repoRoot, "--id", "other-id", "--config", configPath], otherCwd);
+    expect(duplicate.code).toBe(1);
+    expect(duplicate.stderr).toContain("Duplicate root:");
+  });
+
+  test("list reads UTF-8 BOM config files cleanly", async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), "connect-gpt-bom-"));
+    const configPath = join(sandbox, "config.local.json");
+    const repoRoot = join(sandbox, "repo");
+    await mkdir(join(repoRoot, ".git"), { recursive: true });
+    await writeFile(configPath, `\uFEFF${JSON.stringify({
+      repos: [{ repo_id: "bom-cli", display_name: "BOM CLI", root: repoRoot }],
+      limits: {}
+    })}`, "utf8");
+
+    const listed = await runCli(["list", "--config", configPath], sandbox);
+    expect(listed.code).toBe(0);
+    expect(listed.stdout).toContain("bom-cli\tBOM CLI");
+  });
 });
 
 async function writeDoctorPackageJson(root: string): Promise<void> {

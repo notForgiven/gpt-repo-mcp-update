@@ -78,13 +78,27 @@ them as their own repository id if ChatGPT should access them.
 ## Read Protection
 
 Read tools return bounded results rather than recursively exposing an entire
-repository. Searches, multi-file reads, diffs, and diagnostics have result-size
-limits and indicate when output was truncated.
+repository. Searches, single-file reads, multi-file reads, diffs, and
+diagnostics enforce hard-capped result-size limits and indicate when output was
+truncated.
+
+- `repo_fetch_file` streams UTF-8 text files up to `limits.max_file_bytes`
+  (10 MiB default, 50 MiB hard cap) and returns bounded line-range chunks up to
+  `limits.max_bytes_per_file` (256 KB default, 2 MiB hard cap) with
+  `has_more` and `next_start_line` pagination. Binary files are detected on the
+  initial chunk and rejected before reading the remainder of the file.
+- `repo_read_many` clamps caller-supplied `max_files`, `max_bytes_per_file`,
+  and `max_total_bytes` to configured limits (100 files / 1.5 MB default,
+  hard-capped at 250 files / 4 MiB) and tracks budgets by returned UTF-8 bytes
+  with resumable cursor pagination.
 
 Real environment files, private keys, certificate bundles, identity files, and
 directories explicitly named for secrets or credentials are blocked. Public
-templates such as `.env.example` can be read only when their contents pass
-secret scanning.
+templates such as `.env.example` are scanned across the full file and can be
+read only when their contents pass secret scanning, even when requesting a
+narrow line range. Streaming reads also track PEM private-key block boundaries
+from line 1 so mid-block line-range requests stay redacted, and linear-time
+secret redaction guards against regex backtracking on large files.
 
 Generated or normally excluded files require an explicit supported override.
 Secret-looking paths remain blocked even with that override.

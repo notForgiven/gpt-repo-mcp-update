@@ -86,35 +86,38 @@ export const lastWriteHandler: ToolHandler = async (input, context) => safeTool<
 
 export const treeHandler: ToolHandler = async (input, context) => safeTool<TreeOptions & RepoInput>("repo_tree", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new RepoTreeService(new PathSandbox(repo.root)).tree(args);
+  const result = await new RepoTreeService(new PathSandbox(repo.root), context.registry.effectiveLimits).tree(args);
   audit({ tool: "repo_tree", repo_id: args.repo_id, counts: { entries: result.entries.length }, truncated: result.truncated });
   return createSuccessEnvelope(result, `Returned ${result.entries.length} tree entries.`);
 });
 
 export const searchHandler: ToolHandler = async (input, context) => safeTool<SearchOptions & RepoInput>("repo_search", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new SearchService(new PathSandbox(repo.root)).search(args);
+  const result = await new SearchService(new PathSandbox(repo.root), context.registry.effectiveLimits).search(args);
   audit({ tool: "repo_search", repo_id: args.repo_id, counts: { results: result.returned_count }, truncated: result.truncated });
   return createSuccessEnvelope(result, `Returned ${result.returned_count} search results.`);
 });
 
 export const fetchFileHandler: ToolHandler = async (input, context) => safeTool<FetchFileOptions & RepoInput>("repo_fetch_file", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new FileReader(new PathSandbox(repo.root)).read(args);
-  audit({ tool: "repo_fetch_file", repo_id: args.repo_id, paths: [result.path], counts: { bytes: result.size_bytes }, truncated: result.truncated, warnings: result.warnings });
+  const result = await new FileReader(new PathSandbox(repo.root), context.registry.limits).read(args);
+  audit({ tool: "repo_fetch_file", repo_id: args.repo_id, paths: [result.path], counts: { bytes: result.bytes_returned }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Read ${result.path}.`, { warnings: result.warnings });
 });
 
 export const readManyHandler: ToolHandler = async (input, context) => safeTool<ReadManyInput>("repo_read_many", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new ReadManyService(new PathSandbox(repo.root), context.registry.limits).readMany(args);
+  const result = await new ReadManyService(new PathSandbox(repo.root), context.registry.effectiveLimits).readMany(args);
   audit({ tool: "repo_read_many", repo_id: args.repo_id, paths: result.files.map((file) => file.path), counts: { returned: result.files.length, skipped: result.skipped.length }, truncated: result.truncated });
   return createSuccessEnvelope(result, `Read ${result.files.length} files; skipped ${result.skipped.length}.`);
 });
 
 export const contextMapHandler: ToolHandler = async (input, context) => safeTool<ContextMapInput>("repo_context_map", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new ContextMapService(new PathSandbox(repo.root)).map({ goal: args.goal, focus_paths: args.focus_paths, max_files: args.max_files });
+  const result = await new ContextMapService(new PathSandbox(repo.root), {
+    maxTreeEntries: context.registry.effectiveLimits.max_tree_entries,
+    maxDepth: context.registry.effectiveLimits.max_depth
+  }).map({ goal: args.goal, focus_paths: args.focus_paths, max_files: args.max_files });
   audit({ tool: "repo_context_map", repo_id: args.repo_id, paths: args.focus_paths, counts: { edges: result.import_edges.length, tests: result.affected_tests.length }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned context map with ${result.import_edges.length} import edges.`);
 });
@@ -152,14 +155,14 @@ export const gitStatusHandler: ToolHandler = async (input, context) => safeTool<
 
 export const gitDiffHandler: ToolHandler = async (input, context) => safeTool<GitDiffInput>("repo_git_diff", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new GitService(repo.root).diff(args);
+  const result = await new GitService(repo.root, context.registry.effectiveLimits).diff(args);
   audit({ tool: "repo_git_diff", repo_id: args.repo_id, paths: args.paths, counts: { files: result.files.length }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned diff for ${result.files.length} files.`);
 });
 
 export const gitInspectHandler: ToolHandler = async (input, context) => safeTool<GitInspectInput>("repo_git_inspect", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new GitInspectService(repo.root).inspect(args);
+  const result = await new GitInspectService(repo.root, context.registry.effectiveLimits).inspect(args);
   audit({
     tool: "repo_git_inspect",
     repo_id: args.repo_id,
@@ -262,14 +265,17 @@ export const writeRecoverHandler: ToolHandler = async (input, context) => safeTo
 
 export const projectBriefHandler: ToolHandler = async (input, context) => safeTool<ProjectBriefInput>("repo_project_brief", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new ProjectBriefService(repo, new PathSandbox(repo.root)).brief(args);
+  const result = await new ProjectBriefService(repo, new PathSandbox(repo.root), context.registry.effectiveLimits).brief(args);
   audit({ tool: "repo_project_brief", repo_id: args.repo_id, counts: { docs: result.key_docs.length, scripts: result.scripts.length, product_grounded: result.product_brief.status === "configured" ? 1 : 0 }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned ${result.product_brief.status} product brief and technical project signals for ${repo.display_name}.`);
 });
 
 export const changePlanHandler: ToolHandler = async (input, context) => safeTool<ChangePlanInput>("repo_change_plan", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new ChangePlanService(new PathSandbox(repo.root)).plan({ goal: args.goal, include_globs: args.include_globs, max_files_to_inspect: args.max_files_to_inspect, planning_depth: args.planning_depth });
+  const result = await new ChangePlanService(new PathSandbox(repo.root), {
+    maxTreeEntries: context.registry.effectiveLimits.max_tree_entries,
+    maxDepth: context.registry.effectiveLimits.max_depth
+  }).plan({ goal: args.goal, include_globs: args.include_globs, max_files_to_inspect: args.max_files_to_inspect, planning_depth: args.planning_depth });
   audit({ tool: "repo_change_plan", repo_id: args.repo_id, counts: { relevant_files: result.relevant_files.length, steps: result.proposed_steps.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned change plan with ${result.proposed_steps.length} steps.`);
 });

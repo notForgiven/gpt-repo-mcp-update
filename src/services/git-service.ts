@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readlink } from "node:fs/promises";
 import { join } from "node:path";
-import { DEFAULT_LIMITS } from "../policies/limits.js";
+import { clampEffectiveLimits, type EffectiveLimits } from "../policies/limits.js";
 import { delegationControlArtifactGitExcludes, isDelegationControlArtifact } from "../policies/delegation-control-artifacts.js";
 import { isNotFoundError } from "../runtime/fs-helpers.js";
 import { IgnoreEngine } from "./ignore-engine.js";
@@ -30,8 +30,14 @@ export type GitPathState = {
 
 export class GitService {
   private readonly ignoreEngine = new IgnoreEngine();
+  private readonly maxDiffBytes: number;
 
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    limits: Partial<Pick<EffectiveLimits, "max_diff_bytes">> = {}
+  ) {
+    this.maxDiffBytes = clampEffectiveLimits(limits).max_diff_bytes;
+  }
 
   async status() {
     const rootReal = await assertGitRepoConfined(this.root);
@@ -131,7 +137,7 @@ export class GitService {
       args.push("--", ".", ...delegationControlArtifactGitExcludes());
     }
 
-    const maxBytes = Math.min(options.max_bytes ?? DEFAULT_LIMITS.max_diff_bytes, DEFAULT_LIMITS.max_diff_bytes);
+    const maxBytes = Math.min(options.max_bytes ?? this.maxDiffBytes, this.maxDiffBytes);
     const result = await runGitReadOnly({
       root: rootReal,
       root_real: rootReal,

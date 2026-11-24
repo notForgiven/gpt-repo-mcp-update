@@ -244,7 +244,7 @@ describe("MCP contract", () => {
               "openWorldHint": false,
               "readOnlyHint": true,
             },
-            "description": "Use this when reading one known file or line range. Do not use it for broad repository review.",
+            "description": "Use this when reading one known file or line range; paginates large files safely. Not for broad review.",
             "inputKeys": [
               "end_line",
               "max_bytes",
@@ -255,8 +255,11 @@ describe("MCP contract", () => {
             ],
             "name": "repo_fetch_file",
             "outputKeys": [
+              "bytes_returned",
               "end_line",
+              "has_more",
               "language",
+              "next_start_line",
               "path",
               "sha256",
               "size_bytes",
@@ -275,7 +278,7 @@ describe("MCP contract", () => {
               "openWorldHint": false,
               "readOnlyHint": true,
             },
-            "description": "Use this when reading a bounded known set of files or globs. Do not use it to read an entire repository.",
+            "description": "Use this when reading a bounded known set of files or globs with cursor pagination. Not for whole repos.",
             "inputKeys": [
               "cursor",
               "exclude_globs",
@@ -291,8 +294,10 @@ describe("MCP contract", () => {
               "files",
               "matched_count",
               "next_cursor",
+              "remaining_count",
               "returned_count",
               "skipped",
+              "total_bytes_returned",
               "truncated",
             ],
             "title": "Read bounded files",
@@ -2116,6 +2121,127 @@ describe("MCP contract", () => {
       const listed = await client.listTools();
       const inspectTool = listed.tools.find((tool) => tool.name === "repo_git_inspect");
       expect(inspectTool?.annotations).toMatchObject(readOnlyAnnotations);
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_fetch_file and repo_read_many tools/call expose bounded chunked pagination and continuation metadata", async () => {
+    const { client, close } = await connectFixtureServer();
+    try {
+      const largeContent = Array.from({ length: 80 }, (_, index) => `line-${String(index + 1).padStart(3, "0")}: ${"x".repeat(20)}`).join("\n") + "\n";
+      const created = await client.callTool({
+        name: "repo_write_file",
+        arguments: {
+          repo_id: "fixture",
+          path: "docs/large-paginated.txt",
+          content: largeContent
+        }
+      });
+      expect(created.isError).toBeUndefined();
+
+      const firstChunk = await client.callTool({
+        name: "repo_fetch_file",
+        arguments: {
+          repo_id: "fixture",
+          path: "docs/large-paginated.txt",
+          max_bytes: 200
+        }
+      });
+      expect(firstChunk.isError).toBeUndefined();
+      const fetchTool = toolCatalog.find((tool) => tool.name === "repo_fetch_file");
+      expect(fetchTool?.outputSchema.safeParse(firstChunk.structuredContent).error?.issues).toBeUndefined();
+      const firstPayload = firstChunk.structuredContent as {
+        sha256: string;
+        start_line: number;
+        end_line: number;
+        truncated: boolean;
+        has_more: boolean;
+        next_start_line?: number;
+        bytes_returned: number;
+        text: string;
+      };
+      expect(firstPayload.truncated).toBe(true);
+      expect(firstPayload.has_more).toBe(true);
+      expect(firstPayload.next_start_line).toBe(firstPayload.end_line + 1);
+      expect(firstPayload.bytes_returned).toBeGreaterThan(0);
+      expect(firstPayload.bytes_returned).toBeLessThanOrEqual(200);
+      expect(firstPayload.bytes_returned).toBe(Buffer.byteLength(firstPayload.text, "utf8"));
+
+      const secondChunk = await client.callTool({
+        name: "repo_fetch_file",
+        arguments: {
+          repo_id: "fixture",
+          path: "docs/large-paginated.txt",
+          start_line: firstPayload.next_start_line,
+          max_bytes: 200
+        }
+      });
+      expect(secondChunk.isError).toBeUndefined();
+      expect(fetchTool?.outputSchema.safeParse(secondChunk.structuredContent).error?.issues).toBeUndefined();
+      const secondPayload = secondChunk.structuredContent as {
+        sha256: string;
+        start_line: number;
+        end_line: number;
+        has_more: boolean;
+        next_start_line?: number;
+        bytes_returned: number;
+      };
+      expect(secondPayload.sha256).toBe(firstPayload.sha256);
+      expect(secondPayload.start_line).toBe(firstPayload.next_start_line);
+      expect(secondPayload.end_line).toBeGreaterThanOrEqual(secondPayload.start_line);
+      expect(secondPayload.bytes_returned).toBeGreaterThan(0);
+
+      const page1 = await client.callTool({
+        name: "repo_read_many",
+        arguments: {
+          repo_id: "fixture",
+          paths: ["README.md", "docs/ARCHITECTURE.md", "src/app.ts"],
+          max_total_bytes: 30
+        }
+      });
+      expect(page1.isError).toBeUndefined();
+      const readManyTool = toolCatalog.find((tool) => tool.name === "repo_read_many");
+      expect(readManyTool?.outputSchema.safeParse(page1.structuredContent).error?.issues).toBeUndefined();
+      const page1Payload = page1.structuredContent as {
+        files: Array<{ path: string; bytes_returned: number }>;
+        total_bytes_returned: number;
+        remaining_count: number;
+        truncated: boolean;
+        next_cursor?: string;
+      };
+      expect(page1Payload.files.length).toBeGreaterThan(0);
+      expect(page1Payload.total_bytes_returned).toBe(
+        page1Payload.files.reduce((sum, file) => sum + file.bytes_returned, 0)
+      );
+      expect(page1Payload.truncated).toBe(true);
+      expect(page1Payload.remaining_count).toBeGreaterThan(0);
+      expect(page1Payload.next_cursor).toBeTypeOf("string");
+
+      const page2 = await client.callTool({
+        name: "repo_read_many",
+        arguments: {
+          repo_id: "fixture",
+          paths: ["README.md", "docs/ARCHITECTURE.md", "src/app.ts"],
+          max_total_bytes: 500,
+          cursor: page1Payload.next_cursor
+        }
+      });
+      expect(page2.isError).toBeUndefined();
+      expect(readManyTool?.outputSchema.safeParse(page2.structuredContent).error?.issues).toBeUndefined();
+      const page2Payload = page2.structuredContent as {
+        files: Array<{ path: string; bytes_returned: number }>;
+        total_bytes_returned: number;
+        remaining_count: number;
+        truncated: boolean;
+      };
+      expect(page2Payload.truncated).toBe(false);
+      expect(page2Payload.remaining_count).toBe(0);
+      expect(page2Payload.total_bytes_returned).toBe(
+        page2Payload.files.reduce((sum, file) => sum + file.bytes_returned, 0)
+      );
+      const returnedPaths = [...page1Payload.files, ...page2Payload.files].map((file) => file.path);
+      expect(returnedPaths).toEqual(["README.md", "docs/ARCHITECTURE.md", "src/app.ts"]);
     } finally {
       await close();
     }

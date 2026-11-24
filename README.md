@@ -24,6 +24,8 @@ repository is read-only, writable, or ready for reviewed local commit work.
 | Your goal | What ChatGPT can do |
 | --- | --- |
 | Understand an unfamiliar project | Map the structure, search code, read relevant files, and trace dependencies |
+| Work with large files and many files | Page through multi-megabyte files by line range and batch-read up to 100 files per call with resumable pagination |
+| Investigate history | Inspect Git status, branches, tags, log, commit graphs, blame, and refs through read-only structured commands |
 | Build a feature or application | Plan and apply cohesive edits across one or many files in an approved repository |
 | Fix a failing implementation | Run approved tests, builds, linting, type checks, or smoke checks and use the evidence to correct the code |
 | Review work before it ships | Inspect current file bytes and the real Git diff, identify risks, and verify what remains |
@@ -69,7 +71,8 @@ npm run build
 cp config.example.json config.local.json
 ```
 
-The copied starter config is valid and empty.
+The copied starter config is valid, starts with an empty repository list, and
+includes the default read `limits`.
 
 ### 2. Approve a repository
 
@@ -160,9 +163,45 @@ continuity, or reviewing externally executed agent work are used only when the
 task benefits from them.
 
 You normally do not need to select tools by name. The connector describes each
-tool to ChatGPT, and the server checks every request independently. See
+of its 47 tools to ChatGPT, and the server checks every request independently. See
 [Tools and workflows](docs/TOOL_SURFACE.md) when you want to understand the
 available tool groups or ask ChatGPT to use a specific capability.
+
+## Reading Large Files And Many Files
+
+- `repo_fetch_file` streams UTF-8 text files up to 10 MiB on disk by default
+  (configurable up to 50 MiB). Each response is capped at 256 KB by default
+  (configurable up to 2 MiB). When a file or range is bigger, the response
+  includes `has_more` and `next_start_line` so ChatGPT can request the next
+  part. Reading lines 1000–1500 of a large file does not load the whole file
+  into memory.
+- `repo_read_many` reads selected files or globs in one call: up to 100 files
+  and 1.5 MB by default, configurable up to 250 files and 4 MiB. Glob discovery
+  can scan several pages of the tree. If one file is too large, only that file
+  is truncated and the rest of the batch still returns. When a batch has more
+  files than fit, `next_cursor` lets ChatGPT pick up where it stopped.
+- Binary files are detected on the first chunk. Secret-looking paths stay
+  blocked. Returned text goes through linear-time secret redaction, so large
+  reads cannot trigger slow regular-expression backtracking.
+
+## Read-Only Git Inspection
+
+`repo_git_inspect` answers history and state questions through 12 allowlisted
+read-only commands: `status`, `branch`, `tag`, `log`, `diff`, `commit_tree`,
+`file_tree`, `show`, `blame`, `rev_parse`, `merge_base`, and `shortlog`. It is
+available in every permission mode, including `read`.
+
+ChatGPT supplies structured fields, never raw Git arguments. The runner adds
+these protections:
+
+- runs without a shell and uses `--no-pager`, `--no-optional-locks`, and
+  disabled external diff, textconv, fsmonitor, and credential helpers;
+- rejects refs, patterns, and paths that begin with `-`, use pathspec magic,
+  traverse outside the repository, or target `.git/` internals;
+- keeps Git inside the approved repository root, with a minimal sanitized
+  environment, timeouts, and output limits;
+- leaves out secret-looking paths, blocks binary blobs, and redacts
+  secret-looking values from returned text.
 
 ## Safety By Design
 
@@ -172,6 +211,10 @@ available tool groups or ask ChatGPT to use a specific capability.
 - File changes are checked against allowed paths, denied paths, size limits,
   stale-state guards, and secret patterns.
 - Validation uses configured profiles instead of arbitrary commands.
+- Read-only Git inspection uses a hardened runner without a shell or raw
+  arguments. It refuses flag injection and stays inside the repository root.
+- Read sizes are capped by validated limits, and returned text is
+  secret-redacted.
 - Git mutations operate on explicit paths and current reviewed state.
 - Push and deployment remain outside the server.
 
@@ -190,6 +233,46 @@ For the full boundary, threat model, and approval behavior, read
 | `npm run connect` | Start the server and built-in ngrok connection flow |
 | `npm run connect:secure` | Start the server with the OpenAI Secure MCP Tunnel |
 | `npm run check:config` | Validate local configuration |
+
+## Configuration
+
+Local settings live in `config.local.json`, which you create from
+`config.example.json` and which Git ignores. The server (`npm run dev`,
+`npm start`, and `npm run connect`) automatically loads `./config.local.json`
+when `GPT_REPO_CONFIG` and `REPO_READER_CONFIG` are unset; set either variable
+to load a different config file (`PORT` is also respected by `npm run connect`).
+Relative repository `root` paths resolve relative to the config file's
+directory, and UTF-8 BOM config files are supported on Windows.
+
+The optional top-level `limits` block sets read budgets (and optional search,
+tree, diff, task-inventory, and project-brief limits):
+
+```json
+{
+  "repos": [],
+  "limits": {
+    "max_files": 100,
+    "max_bytes_per_file": 256000,
+    "max_file_bytes": 10485760,
+    "max_total_bytes": 1500000
+  }
+}
+```
+
+| Limit | Default | Maximum allowed |
+| --- | ---: | ---: |
+| `max_files` | 100 | 250 |
+| `max_bytes_per_file` | 256 KB | 2 MiB |
+| `max_total_bytes` | 1.5 MB | 4 MiB |
+| `max_file_bytes` | 10 MiB | 50 MiB |
+| `max_read_many_tree_pages` | 10 | 25 |
+
+The config is strict: unknown keys and values above a limit's maximum are
+rejected, so a typo cannot quietly fall back to a default. All configured
+`limits` fields are propagated to runtime services, and if a tool call asks for
+a larger value than the configured limit, the server clamps to the configured
+limit instead. Run `npm run check:config` after editing. See
+[Read limits](docs/SETUP.md#read-limits) for the full reference.
 
 ## Documentation
 
