@@ -17,6 +17,7 @@ import { DecisionLogInputSchema, DecisionLogResultSchema } from "../contracts/de
 import { FetchFileInputSchema, FileContentSchema, ReadManyInputSchema, ReadManyResultSchema } from "../contracts/file.contract.js";
 import { FailureDiagnoseInputSchema, FailureDiagnoseResultSchema } from "../contracts/failure-diagnose.contract.js";
 import { GitCommitInputSchema, GitCommitResultSchema, GitRecoverInputSchema, GitRecoverResultSchema, GitRestorePathsInputSchema, GitRestorePathsResultSchema, GitStageCommitInputSchema, GitStageCommitResultSchema, GitStageInputSchema, GitStageResultSchema, GitUnstageInputSchema, GitUnstageResultSchema } from "../contracts/git-operations.contract.js";
+import { GitInspectInputSchema, GitInspectResultSchema } from "../contracts/git-inspect.contract.js";
 import { GitDiffInputSchema, GitDiffResultSchema, GitStatusInputSchema, GitStatusResultSchema } from "../contracts/git.contract.js";
 import { GitReviewInputSchema, GitReviewResultSchema } from "../contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../contracts/handoff.contract.js";
@@ -106,6 +107,10 @@ export const toolContracts = {
   repo_git_diff: {
     input: GitDiffInputSchema,
     output: GitDiffResultSchema
+  },
+  repo_git_inspect: {
+    input: GitInspectInputSchema,
+    output: GitInspectResultSchema
   },
   repo_git_review: {
     input: GitReviewInputSchema,

@@ -1,6 +1,6 @@
 # Tools And Workflows
 
-GPT Repo MCP exposes 46 focused repository tools to ChatGPT. You normally do
+GPT Repo MCP exposes 47 focused repository tools to ChatGPT. You normally do
 not need to call them by name. Describe the outcome you want, and ChatGPT uses
 the connector's instructions and tool descriptions to choose an appropriate
 workflow.
@@ -73,7 +73,7 @@ automatic push, automatic deployment, force operations, or branch management.
 | Access and policy | Repository discovery and effective-policy explanation | 2 |
 | Understand and plan | Tree, search, reads, context, indexing, briefs, inventory, decisions, and planning | 11 |
 | Edit and continue | Direct writes, work sessions, handoffs, and latest-write evidence | 7 |
-| Validate and review | Approved checks, diagnosis, semantic review, ship review, and Git evidence | 7 |
+| Validate and review | Approved checks, diagnosis, semantic review, ship review, and Git evidence | 8 |
 | Complete or recover | Local Git completion, recovery, cleanup, and operation history | 8 |
 | Transactional patchsets | Prepare, apply, review, and roll back a bounded change set | 4 |
 | External-agent coordination | Prepare tasks, inspect results, answer questions, and record reviews | 7 |
@@ -239,6 +239,23 @@ unstaged paths, and untracked paths without changing Git.
 
 **Read-only.** Returns a bounded Git diff with files and hunks. It is the main
 evidence for reviewing what actually changed.
+
+### `repo_git_inspect`
+
+**Read-only.** Runs strictly allowlisted, structured read-only Git inspection
+commands without raw arguments or shell execution. Supports 12 commands:
+`status` (porcelain v2 status with upstream, ahead/behind, detached, and
+in-progress merge/rebase state), `branch` (local/remote/all branch refs),
+`tag` (lightweight and annotated tags), `log` (bounded commit history with
+ref/range, author, date, fixed-string grep, and path filters), `diff` (bounded
+two-dot/three-dot, staged/unstaged, or stat-only diff), `commit_tree`
+(structured commit DAG plus bounded ASCII graph), `file_tree` (Git object tree
+at a ref via `ls-tree`), `show` (commit metadata/stat/patch or a single
+non-secret file blob at a ref), `blame` (bounded line-range attribution for one
+non-secret file), `rev_parse` (batch ref-to-SHA resolution), `merge_base`
+(common ancestor between two refs), and `shortlog` (bounded contributor counts).
+Enforces repo-root confinement, option-injection validation, secret-path
+omission, secret-value redaction, binary blocking, and output/timeout caps.
 
 ### `repo_git_review`
 

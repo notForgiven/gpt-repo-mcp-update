@@ -3,6 +3,7 @@ import { ContextMapService } from "../../services/context-map-service.js";
 import { FailureDiagnoseService } from "../../services/failure-diagnose-service.js";
 import { FileReader } from "../../services/file-reader.js";
 import { FileWriter } from "../../services/file-writer.js";
+import { GitInspectService } from "../../services/git-inspect-service.js";
 import { GitOperationsService } from "../../services/git-operations-service.js";
 import { GitReviewService } from "../../services/git-review-service.js";
 import { GitService } from "../../services/git-service.js";
@@ -26,6 +27,7 @@ import { createSuccessEnvelope } from "../../runtime/result-envelope.js";
 import { audit } from "../../runtime/telemetry.js";
 import type { ChangePlanInput } from "../../contracts/change-plan.contract.js";
 import type { ContextMapInput } from "../../contracts/context-map.contract.js";
+import type { GitInspectInput, GitInspectResult } from "../../contracts/git-inspect.contract.js";
 import type { GitRecoverInput, GitStageCommitInput } from "../../contracts/git-operations.contract.js";
 import type { GitReviewInput } from "../../contracts/git-review.contract.js";
 import type { HandoffInput } from "../../contracts/handoff.contract.js";
@@ -154,6 +156,84 @@ export const gitDiffHandler: ToolHandler = async (input, context) => safeTool<Gi
   audit({ tool: "repo_git_diff", repo_id: args.repo_id, paths: args.paths, counts: { files: result.files.length }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned diff for ${result.files.length} files.`);
 });
+
+export const gitInspectHandler: ToolHandler = async (input, context) => safeTool<GitInspectInput>("repo_git_inspect", input, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new GitInspectService(repo.root).inspect(args);
+  audit({
+    tool: "repo_git_inspect",
+    repo_id: args.repo_id,
+    paths: args.paths ?? (args.file_path ? [args.file_path] : args.path ? [args.path] : undefined),
+    counts: gitInspectAuditCounts(result),
+    truncated: result.truncated,
+    warnings: result.warnings
+  });
+  return createSuccessEnvelope(result, summarizeGitInspect(result));
+});
+
+function gitInspectAuditCounts(result: GitInspectResult): Record<string, number> {
+  switch (result.command) {
+    case "status":
+      return { files: result.status?.files.length ?? 0 };
+    case "branch":
+      return { branches: result.branches?.items.length ?? 0 };
+    case "tag":
+      return { tags: result.tags?.items.length ?? 0 };
+    case "log":
+      return { commits: result.commits?.items.length ?? 0 };
+    case "diff":
+      return { files: result.diff?.files.length ?? 0, omitted_secret_files: result.diff?.omitted_secret_files ?? 0 };
+    case "commit_tree":
+      return { nodes: result.commit_tree?.nodes.length ?? 0, graph_lines: result.commit_tree?.graph_lines.length ?? 0 };
+    case "file_tree":
+      return { entries: result.file_tree?.entries.length ?? 0 };
+    case "show":
+      return result.show?.kind === "blob"
+        ? { lines: result.show.blob ? Math.max(0, result.show.blob.end_line - result.show.blob.start_line + 1) : 0 }
+        : { files: result.show?.commit?.files.length ?? 0 };
+    case "blame":
+      return { lines: result.blame?.lines.length ?? 0 };
+    case "rev_parse":
+      return { refs: result.resolved_refs?.items.length ?? 0 };
+    case "merge_base":
+      return { resolved: result.merge_base ? 1 : 0 };
+    case "shortlog":
+      return { contributors: result.shortlog?.contributors.length ?? 0 };
+  }
+}
+
+function summarizeGitInspect(result: GitInspectResult): string {
+  switch (result.command) {
+    case "status":
+      return result.status?.clean
+        ? `Git status is clean on ${result.status.branch}.`
+        : `Git status returned ${result.status?.files.length ?? 0} changed files on ${result.status?.branch ?? "HEAD"}.`;
+    case "branch":
+      return `Returned ${result.branches?.items.length ?? 0} branches.`;
+    case "tag":
+      return `Returned ${result.tags?.items.length ?? 0} tags.`;
+    case "log":
+      return `Returned ${result.commits?.items.length ?? 0} commits.`;
+    case "diff":
+      return `Returned diff for ${result.diff?.files.length ?? 0} files.`;
+    case "commit_tree":
+      return `Returned commit graph with ${result.commit_tree?.nodes.length ?? 0} commits.`;
+    case "file_tree":
+      return `Returned ${result.file_tree?.entries.length ?? 0} Git tree entries at ${result.file_tree?.ref ?? "HEAD"}.`;
+    case "show":
+      return result.show?.kind === "blob"
+        ? `Returned blob content for ${result.show.blob?.path ?? "file"} at ${result.show.ref}.`
+        : `Returned commit details for ${result.show?.commit?.short_sha ?? result.show?.ref ?? "HEAD"}.`;
+    case "blame":
+      return `Returned blame for ${result.blame?.lines.length ?? 0} lines of ${result.blame?.path ?? "file"}.`;
+    case "rev_parse":
+      return `Resolved ${result.resolved_refs?.items.filter((item) => item.resolved).length ?? 0} of ${result.resolved_refs?.items.length ?? 0} refs.`;
+    case "merge_base":
+      return `Resolved merge base ${result.merge_base?.short_sha ?? "unknown"}.`;
+    case "shortlog":
+      return `Returned shortlog for ${result.shortlog?.contributors.length ?? 0} contributors.`;
+  }
+}
 
 export const gitReviewHandler: ToolHandler = async (input, context) => safeTool<GitReviewInput>("repo_git_review", input, async (args) => {
   const repo = context.registry.get(args.repo_id);

@@ -32,6 +32,7 @@ import {
   DelegationWriteResultV3Schema
 } from "../src/contracts/delegation-v3.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../src/contracts/decision.contract.js";
+import { GitInspectInputSchema, GitInspectResultSchema } from "../src/contracts/git-inspect.contract.js";
 import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../src/contracts/operation-receipt.contract.js";
@@ -86,6 +87,7 @@ describe("tool catalog contracts", () => {
       "repo_ship_review",
       "repo_git_status",
       "repo_git_diff",
+      "repo_git_inspect",
       "repo_git_review",
       "repo_git_restore_paths",
       "repo_write_stage",
@@ -321,13 +323,19 @@ describe("tool catalog contracts", () => {
     expect(restorePaths?.annotations).toEqual(writeAnnotations);
 
     expect(isMutatingToolName("repo_git_review")).toBe(false);
+    expect(isMutatingToolName("repo_git_inspect")).toBe(false);
     expect(isMutatingToolName("repo_last_write")).toBe(false);
+    const gitInspect = toolCatalog.find((tool) => tool.name === "repo_git_inspect");
+    expect(gitInspect).toBeDefined();
+    expect(gitInspect?.inputSchema).toBe(GitInspectInputSchema);
+    expect(gitInspect?.outputSchema).toBe(GitInspectResultSchema);
+    expect(gitInspect?.annotations).toEqual(readOnlyAnnotations);
   });
 
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(46);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(47);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -343,6 +351,7 @@ describe("tool catalog contracts", () => {
       "repo_ship_review",
       "repo_git_status",
       "repo_git_diff",
+      "repo_git_inspect",
       "repo_git_review",
       "repo_write_stage_commit",
       "repo_write_recover",
@@ -780,6 +789,13 @@ describe("tool catalog contracts", () => {
       ["repo_cleanup_paths.skipped.reason", CleanupPathsResultSchema.shape.skipped.element.shape.reason],
       ["repo_cleanup_paths.warnings", CleanupPathsResultSchema.shape.warnings]
     ]);
+
+    expectFieldDescriptions(
+      Object.entries(GitInspectInputSchema.shape).map(([field, schema]) => [`repo_git_inspect.input.${field}`, schema])
+    );
+    expectFieldDescriptions(
+      Object.entries(GitInspectResultSchema.shape).map(([field, schema]) => [`repo_git_inspect.output.${field}`, schema])
+    );
   });
 
   test("repo_write_changes schema accepts grouped same-file exact-match edits", () => {
@@ -1614,6 +1630,75 @@ describe("tool catalog contracts", () => {
             "openWorldHint": false,
             "readOnlyHint": true,
           },
+          "description": "Use this when inspecting read-only Git history, branches, tags, commit or file trees, diffs, show, blame, rev-parse, merge-base, or shortlog without mutation.",
+          "inputKeys": [
+            "all_refs",
+            "author",
+            "command",
+            "compare_ref",
+            "contains",
+            "context_lines",
+            "end_line",
+            "file_path",
+            "first_parent",
+            "grep",
+            "include_patch",
+            "include_stat",
+            "limit",
+            "max_bytes",
+            "max_depth",
+            "max_files",
+            "merged",
+            "merges",
+            "no_merged",
+            "path",
+            "paths",
+            "pattern",
+            "range_mode",
+            "recursive",
+            "ref",
+            "refs",
+            "repo_id",
+            "scope",
+            "since",
+            "skip",
+            "sort",
+            "staged",
+            "start_line",
+            "stat_only",
+            "unstaged",
+            "until",
+          ],
+          "name": "repo_git_inspect",
+          "outputKeys": [
+            "blame",
+            "branches",
+            "command",
+            "commit_tree",
+            "commits",
+            "diff",
+            "file_tree",
+            "merge_base",
+            "ok",
+            "repo_id",
+            "resolved_refs",
+            "shortlog",
+            "show",
+            "status",
+            "tags",
+            "truncated",
+            "truncation_reason",
+            "warnings",
+          ],
+          "title": "Inspect git history and refs",
+        },
+        {
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true,
+          },
           "description": "Use this when reviewing current Git state or planning commit and recovery without mutation. Compact is default; detail=full adds granular and dry-run payloads.",
           "inputKeys": [
             "detail",
@@ -1751,7 +1836,7 @@ describe("tool catalog contracts", () => {
             "openWorldHint": false,
             "readOnlyHint": false,
           },
-          "description": "Use this when review returns the canonical stage-and-commit payload. Normal review supplies explicit paths; multi-run integration supplies only its opaque review_pathset_id. The server rechecks exact HEAD, bytes, paths, gates, and staged set, creates one local commit, and never pushes.",
+          "description": "Use this when review returns the canonical stage-and-commit payload (explicit paths or integration review_pathset_id). It rechecks exact HEAD, bytes, paths, gates, and staged set, creates one local commit, and never pushes.",
           "inputKeys": [
             "dry_run",
             "expected_head_sha",
@@ -2199,7 +2284,7 @@ describe("tool catalog contracts", () => {
             "openWorldHint": false,
             "readOnlyHint": false,
           },
-          "description": "Use this when the owner explicitly approves integrating multiple currently attested Delegation v3 runs in one worktree, and only for that integration case. It requires exact run, HEAD, pathset, validation, product-verdict, semantic, scope, and content state, then writes an opaque pathset for one atomic local commit; it is not a force or skip-review path.",
+          "description": "Use this when integrating multiple attested Delegation v3 runs in one worktree with owner approval. It verifies exact run, HEAD, pathset, validation, review, semantic, and content state, writes an opaque pathset for one local commit, and never skips review.",
           "inputKeys": [
             "commit_message",
             "dry_run",
@@ -2603,6 +2688,7 @@ describe("tool catalog contracts", () => {
       "failureDiagnoseHandler",
       "fetchFileHandler",
       "gitDiffHandler",
+      "gitInspectHandler",
       "gitRestorePathsHandler",
       "gitReviewHandler",
       "gitStatusHandler",

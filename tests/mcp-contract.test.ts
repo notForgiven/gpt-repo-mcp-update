@@ -547,6 +547,75 @@ describe("MCP contract", () => {
               "openWorldHint": false,
               "readOnlyHint": true,
             },
+            "description": "Use this when inspecting read-only Git history, branches, tags, commit or file trees, diffs, show, blame, rev-parse, merge-base, or shortlog without mutation.",
+            "inputKeys": [
+              "all_refs",
+              "author",
+              "command",
+              "compare_ref",
+              "contains",
+              "context_lines",
+              "end_line",
+              "file_path",
+              "first_parent",
+              "grep",
+              "include_patch",
+              "include_stat",
+              "limit",
+              "max_bytes",
+              "max_depth",
+              "max_files",
+              "merged",
+              "merges",
+              "no_merged",
+              "path",
+              "paths",
+              "pattern",
+              "range_mode",
+              "recursive",
+              "ref",
+              "refs",
+              "repo_id",
+              "scope",
+              "since",
+              "skip",
+              "sort",
+              "staged",
+              "start_line",
+              "stat_only",
+              "unstaged",
+              "until",
+            ],
+            "name": "repo_git_inspect",
+            "outputKeys": [
+              "blame",
+              "branches",
+              "command",
+              "commit_tree",
+              "commits",
+              "diff",
+              "file_tree",
+              "merge_base",
+              "ok",
+              "repo_id",
+              "resolved_refs",
+              "shortlog",
+              "show",
+              "status",
+              "tags",
+              "truncated",
+              "truncation_reason",
+              "warnings",
+            ],
+            "title": "Inspect git history and refs",
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+            },
             "description": "Use this when reviewing current Git state or planning commit and recovery without mutation. Compact is default; detail=full adds granular and dry-run payloads.",
             "inputKeys": [
               "detail",
@@ -684,7 +753,7 @@ describe("MCP contract", () => {
               "openWorldHint": false,
               "readOnlyHint": false,
             },
-            "description": "Use this when review returns the canonical stage-and-commit payload. Normal review supplies explicit paths; multi-run integration supplies only its opaque review_pathset_id. The server rechecks exact HEAD, bytes, paths, gates, and staged set, creates one local commit, and never pushes.",
+            "description": "Use this when review returns the canonical stage-and-commit payload (explicit paths or integration review_pathset_id). It rechecks exact HEAD, bytes, paths, gates, and staged set, creates one local commit, and never pushes.",
             "inputKeys": [
               "dry_run",
               "expected_head_sha",
@@ -1132,7 +1201,7 @@ describe("MCP contract", () => {
               "openWorldHint": false,
               "readOnlyHint": false,
             },
-            "description": "Use this when the owner explicitly approves integrating multiple currently attested Delegation v3 runs in one worktree, and only for that integration case. It requires exact run, HEAD, pathset, validation, product-verdict, semantic, scope, and content state, then writes an opaque pathset for one atomic local commit; it is not a force or skip-review path.",
+            "description": "Use this when integrating multiple attested Delegation v3 runs in one worktree with owner approval. It verifies exact run, HEAD, pathset, validation, review, semantic, and content state, writes an opaque pathset for one local commit, and never skips review.",
             "inputKeys": [
               "commit_message",
               "dry_run",
@@ -1944,7 +2013,7 @@ describe("MCP contract", () => {
     } finally {
       await close();
     }
-  });
+  }, 15_000);
 
   test("repo_rollback_patchset tools/call returns structuredContent matching the advertised output", async () => {
     const { client, close, head } = await connectFixtureServer();
@@ -1999,6 +2068,54 @@ describe("MCP contract", () => {
       });
       const definition = toolCatalog.find((tool) => tool.name === "repo_rollback_patchset");
       expect(definition?.outputSchema.safeParse(result.structuredContent).success).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_git_inspect tools/call supports read-only commands and rejects option injection", async () => {
+    const { client, close } = await connectFixtureServer();
+    try {
+      const definition = toolCatalog.find((tool) => tool.name === "repo_git_inspect");
+      expect(definition).toBeDefined();
+      expect(definition?.annotations).toEqual(readOnlyAnnotations);
+
+      const commands: Array<{ label: string; args: Record<string, unknown>; payloadKey: string }> = [
+        { label: "status", args: { repo_id: "fixture", command: "status" }, payloadKey: "status" },
+        { label: "branch", args: { repo_id: "fixture", command: "branch" }, payloadKey: "branches" },
+        { label: "tag", args: { repo_id: "fixture", command: "tag" }, payloadKey: "tags" },
+        { label: "log", args: { repo_id: "fixture", command: "log", limit: 5 }, payloadKey: "commits" },
+        { label: "diff", args: { repo_id: "fixture", command: "diff", staged: true }, payloadKey: "diff" },
+        { label: "commit_tree", args: { repo_id: "fixture", command: "commit_tree", limit: 5 }, payloadKey: "commit_tree" },
+        { label: "file_tree", args: { repo_id: "fixture", command: "file_tree", ref: "HEAD", recursive: true }, payloadKey: "file_tree" }
+      ];
+
+      for (const item of commands) {
+        const result = await client.callTool({ name: "repo_git_inspect", arguments: item.args });
+        expect(result.isError, item.label).toBeUndefined();
+        expect(result.structuredContent, item.label).toBeDefined();
+        const parsed = definition!.outputSchema.safeParse(result.structuredContent);
+        expect(parsed.error?.issues, item.label).toBeUndefined();
+        expect((result.structuredContent as Record<string, unknown>)[item.payloadKey], item.label).toBeDefined();
+      }
+
+      const injectedRef = await client.callTool({
+        name: "repo_git_inspect",
+        arguments: { repo_id: "fixture", command: "diff", ref: "--output=evil.txt" }
+      });
+      expect(injectedRef.isError).toBe(true);
+      expect((injectedRef.structuredContent as { ok: false; error: { code: string } }).ok).toBe(false);
+
+      const secretBlob = await client.callTool({
+        name: "repo_git_inspect",
+        arguments: { repo_id: "fixture", command: "show", ref: "HEAD", file_path: ".env" }
+      });
+      expect(secretBlob.isError).toBe(true);
+      expect((secretBlob.structuredContent as { error: { code: string } }).error.code).toBe("SECRET_CANDIDATE_BLOCKED");
+
+      const listed = await client.listTools();
+      const inspectTool = listed.tools.find((tool) => tool.name === "repo_git_inspect");
+      expect(inspectTool?.annotations).toMatchObject(readOnlyAnnotations);
     } finally {
       await close();
     }
@@ -2104,6 +2221,7 @@ function representativeCalls(head: string): Record<string, Record<string, unknow
   repo_ship_review: { repo_id: "fixture", max_findings: 10, max_files: 20 },
   repo_git_status: { repo_id: "fixture" },
   repo_git_diff: { repo_id: "fixture" },
+  repo_git_inspect: { repo_id: "fixture", command: "status" },
   repo_git_review: { repo_id: "fixture" },
   repo_git_restore_paths: { repo_id: "fixture", paths: ["docs/write-dry-run.md"], expected_head_sha: head, dry_run: true },
   repo_write_stage: { repo_id: "fixture", paths: ["docs/write-dry-run.md"], expected_head_sha: head, dry_run: true },

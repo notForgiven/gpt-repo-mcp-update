@@ -24,6 +24,7 @@ export const CANONICAL_TOOL_ORDER = [
   "repo_ship_review",
   "repo_git_status",
   "repo_git_diff",
+  "repo_git_inspect",
   "repo_git_review",
   "repo_git_restore_paths",
   "repo_write_stage",

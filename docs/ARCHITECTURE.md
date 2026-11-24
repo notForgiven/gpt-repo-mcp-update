@@ -17,7 +17,7 @@ endpoint plus a local health route.
 - `src/tools/contracts.ts` is the single tool-name to contract map; `ToolName` is derived from its keys.
 - `src/tools/tool-definition.ts` defines internal package, tier, capability, contract, annotation, and handler metadata.
 - `src/tools/packages/*` owns each tool definition exactly once in one of six internal packages.
-- `src/tools/registry.ts` validates package completeness and duplicates, then composes the canonical 46-tool order.
+- `src/tools/registry.ts` validates package completeness and duplicates, then composes the canonical 47-tool order.
 - `src/tools/catalog.ts` is a thin compatibility re-export of the registry.
 - `src/tools/define-tool.ts` converts registry contract objects to MCP SDK schemas and registers metadata.
 - `src/tools/handlers/*` contains package-scoped thin adapters from tool input to services; `src/tools/handlers.ts` is a compatibility barrel.
@@ -37,7 +37,7 @@ contracts -> toolContracts -> package definitions -> registry -> define-tool -> 
 
 Contracts define schemas. `toolContracts` assigns exactly one input and output contract to each tool and supplies the derived `ToolName` type. Package modules assign title, annotation, package, tier, optional capability requirements, and handler exactly once. The central registry rejects duplicate or missing definitions and restores the canonical public order before registration. `define-tool` is the only layer that turns Zod objects into MCP SDK `inputSchema` and `outputSchema` shapes. Package handlers resolve approved repos and call services.
 
-The runtime registers the complete 46-tool surface. The registry keeps each
+The runtime registers the complete 47-tool surface. The registry keeps each
 definition unique, preserves a stable public order, and rejects missing or
 duplicate definitions. Package and tier metadata organize implementation code;
 they are not additional user-facing tools or permissions.
@@ -66,7 +66,7 @@ write handlers -> OperationReceiptService
 
 `OperationReceiptService` writes lightweight local receipt metadata after successful actual changed write operations and reads it through `repo_last_write`. Receipts live at `.chatgpt/operations/last-write.json`, are ignored by Git, and contain only safe metadata such as repo-relative paths, counts, timestamps, best-effort HEAD SHAs, and summaries. They do not store contents, snippets, diffs, prompts, command output, secrets, or absolute paths.
 
-Read-only git status and diff operations are owned by `GitService`. Safe local git staging, one-call reviewed stage-and-commit, commit, and explicit worktree restore operations are separate opt-in mutating tools with their own contracts, policy checks, and service logic. Advisory services call existing factual services where practical instead of bypassing repo policy.
+Read-only git status and diff operations are owned by `GitService`, and structured read-only git inspection (`repo_git_inspect`) is owned by `GitInspectService`; both share hardened `runGitReadOnly` execution and `git-read-safety` validation, repo-root confinement, secret filtering, and value redaction. Safe local git staging, one-call reviewed stage-and-commit, commit, and explicit worktree restore operations are separate opt-in mutating tools with their own contracts, policy checks, and service logic. Advisory services call existing factual services where practical instead of bypassing repo policy.
 
 Git recovery is separate from write tools. `repo_write_file` and `repo_write_changes` write files only. `repo_write_recover` is the reviewed composite recovery helper: after `expected_head_sha` verification it can unstage explicit paths, restore explicit tracked worktree paths, and clean explicit generated artifacts through cleanup policy in one approved call. `repo_git_restore_paths` remains the granular worktree-only restore tool with fixed `git restore -- <paths>` arguments; it does not unstage, stage, commit, reset, checkout, clean, stash, restore the whole repo, or run shell commands.
 
@@ -129,7 +129,7 @@ direction, or create next-tool payloads. A passed product review already
 provides checkpoint evidence, so no separate checkpoint file, write tool,
 database, or dashboard is required.
 
-A dedicated workflow-drift regression suite protects the intentional 46-tool
+A dedicated workflow-drift regression suite protects the intentional 47-tool
 surface, canonical documentation, and the authority separation between work
 sessions, explicit-goal planning, run evidence, integration approval, and
 Git/ship review.

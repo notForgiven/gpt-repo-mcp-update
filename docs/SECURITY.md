@@ -121,8 +121,31 @@ redacted before it is returned.
 
 ## Git Review And Local Commits
 
-Git reading is available for status, diffs, and review. Mutating Git operations
-require `ship`-level configuration and use explicit repo-relative paths.
+Git reading is available for status, diffs, review, and structured read-only
+inspection (`repo_git_inspect`: `status`, `branch`, `tag`, `log`, `diff`,
+`commit_tree`, `file_tree`, `show`, `blame`, `rev_parse`, `merge_base`, and
+`shortlog`). Read-only Git tools carry read-only MCP annotations
+(`readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`,
+`openWorldHint: false`) and work in `read` mode without enabling local
+operations.
+
+Read-only Git execution uses a hardened runner with `shell: false`, bounded
+timeouts with process-tree termination, a sanitized minimal environment
+(including `GIT_CEILING_DIRECTORIES` and `GIT_TERMINAL_PROMPT=0`), repo-root
+top-level confinement, and locked global Git safety flags (`--no-pager`,
+`--no-optional-locks`, disabled `core.fsmonitor`, `diff.external`,
+`credential.helper`, `gc.auto`, and `protocol.ext.allow=never`, plus
+`--no-ext-diff` and `--no-textconv` on diff/log/show). No raw command strings,
+raw argument arrays, or user-supplied format strings are accepted. User-supplied
+refs, patterns, filters, and paths are strictly validated against option
+injection (leading `-`), Git pathspec magic (`:`), path traversal, symlink
+escapes, and `.git/` internals. Secret-looking paths and internal delegation
+artifacts are excluded or blocked, public env templates are scanned for real
+secrets, binary files are blocked or omitted, and returned Git text is redacted
+with `SecretScanner`.
+
+Mutating Git operations require `ship`-level configuration and use explicit
+repo-relative paths.
 
 Before staging or committing, GPT Repo MCP verifies the expected HEAD, the
 reviewed path set, current staged state, and applicable validation or review

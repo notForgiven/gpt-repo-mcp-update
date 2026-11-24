@@ -61,6 +61,8 @@ ChatGPT can:
 - search for code, text, usages, configuration, or likely entry points;
 - read one known file, a line range, or a bounded set of relevant files;
 - map file dependencies, symbol references, affected tests, and likely impact;
+- inspect read-only Git history, branches, tags, commit graphs, ref file trees,
+  commits, blame, merge bases, and resolved refs without a shell;
 - summarize repository-owned product context, scripts, architecture, and active
   work without treating old notes as current truth.
 

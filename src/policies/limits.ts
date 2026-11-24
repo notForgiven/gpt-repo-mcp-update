@@ -13,5 +13,15 @@ export const DEFAULT_LIMITS = {
   max_change_plan_files: 30,
   max_change_plan_tree_pages: 5,
   max_depth: 8,
-  max_diff_bytes: 256_000
+  max_diff_bytes: 256_000,
+  git_read_timeout_ms: 10_000,
+  max_git_read_timeout_ms: 15_000,
+  max_git_log_commits: 100,
+  max_git_tree_entries: 2_000,
+  max_git_tree_depth: 8,
+  max_git_refs: 500,
+  max_git_blame_lines: 500,
+  max_git_show_bytes: 256_000,
+  max_git_status_entries: 2_000,
+  max_git_rev_parse_refs: 50
 } as const;
