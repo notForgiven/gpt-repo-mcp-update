@@ -1,67 +1,32 @@
 # GPT Repo MCP
 
-**Let ChatGPT work from your repo — safely.**
+**Let ChatGPT work from your local repositories — safely.**
 
 [![CI](https://github.com/CAHN91/gpt-repo-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/CAHN91/gpt-repo-mcp/actions/workflows/ci.yml)
 ![Node.js >=20](https://img.shields.io/badge/Node.js-%3E%3D20-339933)
 [![License: MIT](https://img.shields.io/badge/License-MIT-111111)](LICENSE)
 ![Writes opt-in](https://img.shields.io/badge/Writes-opt--in-157f53)
 
-GPT Repo MCP connects ChatGPT to approved local repositories through a focused,
-policy-controlled toolset. ChatGPT can understand a codebase, edit multiple
-files, run approved checks, diagnose failures, review the real Git diff, and
-prepare a local commit — while you stay in the normal ChatGPT conversation.
+GPT Repo MCP is a local-first, read-mostly MCP server that connects ChatGPT to explicitly approved repositories. Your files stay on your machine, and you control per-repository permissions (`read`, `write`, or `ship`).
 
-Your files remain in the workspace you approved. You choose whether each
-repository is read-only, writable, or ready for reviewed local commit work.
+> Tool-only MCP server — no custom ChatGPT UI, and not affiliated with OpenAI, ChatGPT, Anthropic, or the Model Context Protocol maintainers.
 
-> GPT Repo MCP is a tool-only MCP server. It does not add a custom interface to
-> ChatGPT and is not affiliated with OpenAI, ChatGPT, Anthropic, or the Model
-> Context Protocol maintainers.
+## Key Capabilities
 
-## What Becomes Possible
+- **Explore & search** — Map repository structure, search code, trace symbols, and build project briefs.
+- **Large & multi-file reading** — Stream large text files by line range (`repo_fetch_file`, up to 10 MiB default / 50 MiB max, 256 KB default / 2 MiB max chunks) and batch-read via `repo_read_many` (up to 100 files / 1.5 MB default, configurable up to 250 files / 4 MiB) with resumable pagination.
+- **Hardened read-only Git inspection** — `repo_git_inspect` exposes 12 allowlisted commands (`status`, `branch`, `tag`, `log`, `diff`, `commit_tree`, `file_tree`, `show`, `blame`, `rev_parse`, `merge_base`, `shortlog`) in every mode, with structured inputs and no shell execution.
+- **Opt-in write & validation workflows** — Policy-checked single/multi-file edits (`write` mode), approved validation profiles, real diff review, recovery, and local commits (`ship` mode). Never runs arbitrary shell commands, pushes, or deploys.
 
-| Your goal | What ChatGPT can do |
-| --- | --- |
-| Understand an unfamiliar project | Map the structure, search code, read relevant files, and trace dependencies |
-| Work with large files and many files | Page through multi-megabyte files by line range and batch-read up to 100 files per call with resumable pagination |
-| Investigate history | Inspect Git status, branches, tags, log, commit graphs, blame, and refs through read-only structured commands |
-| Build a feature or application | Plan and apply cohesive edits across one or many files in an approved repository |
-| Fix a failing implementation | Run approved tests, builds, linting, type checks, or smoke checks and use the evidence to correct the code |
-| Review work before it ships | Inspect current file bytes and the real Git diff, identify risks, and verify what remains |
-| Finish a local change safely | Validate, review, stage, recover, or create a local commit when the repository policy allows it |
-| Continue in a later conversation | Preserve bounded local context, decisions, risks, touched files, and next steps |
+## How ChatGPT Works
 
-ChatGPT chooses a workflow that fits your request. GPT Repo MCP independently
-enforces repository access, path boundaries, write policy, secret checks,
-validation profiles, stale-state guards, and allowed Git operations.
+Describe the goal in normal language; ChatGPT selects from 47 policy-checked tools along the flow **Understand → Edit → Validate → Review → Local commit**, while the server independently enforces every boundary.
 
-[Explore the capability guide](docs/CAPABILITIES.md) ·
-[Review the security model](docs/SECURITY.md) ·
-[See the tools and workflows](docs/TOOL_SURFACE.md)
+## Quick Start
 
-## From Request To Reviewed Result
+Requires Node.js >=20, npm, Git, ChatGPT Developer Mode, and an HTTPS tunnel (e.g. ngrok).
 
-```text
-You ask in ChatGPT
-        ↓
-Understand → Edit → Validate → Review → Local commit
-        ↓
-Approved local repository
-```
-
-A question may need only search and reading. An implementation can continue
-through multi-file editing, approved validation, review, and local commit
-preparation. ChatGPT receives tool descriptions, schemas, safety annotations,
-and structured results that help it select the next appropriate action.
-
-The model guides the work; the server enforces the boundary. No prompt can turn
-the server into unrestricted filesystem access, arbitrary shell execution,
-automatic push, or automatic deployment.
-
-## Quickstart
-
-### 1. Install
+### 1. Install & create starter config
 
 ```bash
 git clone https://github.com/CAHN91/gpt-repo-mcp.git
@@ -71,8 +36,7 @@ npm run build
 cp config.example.json config.local.json
 ```
 
-The copied starter config is valid, starts with an empty repository list, and
-includes the default read `limits`.
+The starter `config.local.json` is valid out of the box with an empty repository list and default read `limits`.
 
 ### 2. Approve a repository
 
@@ -80,242 +44,41 @@ includes the default read `limits`.
 npm run add -- /path/to/your/repo
 ```
 
-In an interactive terminal, choose `read`, `write`, or `ship`. For predictable
-setup in scripts or CI-like terminals, provide an explicit `read`, `write`, or
-`ship` mode:
+Use `npm run add -- <path> --mode <mode>` to set an explicit `read`, `write`, or `ship` mode non-interactively. Manage repos anytime with `npm run list`, `npm run remove -- <repo_id>`, and `npm run doctor`.
+
+### 3. Start & connect ChatGPT
 
 ```bash
-npm run add -- /path/to/your/repo --mode read
-npm run add -- /path/to/your/repo --mode write
-npm run add -- /path/to/your/repo --mode ship
+npm run connect        # Starts server + built-in ngrok tunnel
+npm run dev            # Local server only (default port 8787)
 ```
 
-The general command form is `npm run add -- <path> --mode <mode>`.
-
-### 3. Connect ChatGPT
-
-```bash
-npm run connect
-```
-
-Copy the printed MCP URL into ChatGPT Developer Mode connector settings, start
-a new chat, select the connector, and ask:
-
-```text
-Use GPT Repo MCP. Which repositories can you access?
-```
-
-New to ngrok? Follow [Install ngrok from zero](docs/SETUP.md#install-ngrok-from-zero).
-For the OpenAI Secure MCP Tunnel, use `npm run connect:secure` and follow the
-[connection guide](docs/CONNECTION_OPTIONS.md).
-
-## Permission Modes
-
-| Mode | Best for | Available outcome |
-| --- | --- | --- |
-| `read` | Exploration, architecture review, and cautious first use | Search, read, understand, and review repository state |
-| `write` | Daily implementation | Read capabilities plus policy-checked single- and multi-file edits |
-| `ship` | Reviewed local completion | Write capabilities plus approved validation, recovery, staging, and local commits |
-
-No mode enables push, pull, reset, checkout, switch, rebase, merge, stash,
-force operations, branch deletion, shell execution, or arbitrary commands.
-
-## Try It In ChatGPT
-
-```text
-Give me a project brief for <repo_id>. Explain the architecture and likely entry points.
-```
-
-```text
-Implement this feature in <repo_id>. Update every affected file, run the approved checks, and review the final diff.
-```
-
-```text
-Diagnose the failing tests in <repo_id>, fix the underlying issue, and verify the result.
-```
-
-```text
-Review the current Git changes in <repo_id>. Tell me what is ready, what is risky, and what still needs work.
-```
-
-```text
-Prepare this completed change for a local commit, but do not push or deploy anything.
-```
-
-More examples and resulting workflows are available in the
-[capability guide](docs/CAPABILITIES.md).
-
-## How ChatGPT Works
-
-You describe the outcome in normal language. ChatGPT then chooses the smallest
-safe workflow that fits the request:
-
-1. **Understand** — inspect the project structure and read relevant files.
-2. **Change** — edit one file or a coherent set of files when writes are enabled.
-3. **Validate** — run only checks that the repository has approved.
-4. **Review** — inspect the real Git diff, validation evidence, and remaining risk.
-5. **Finish or recover** — prepare a reviewed local commit, or safely reverse the
-   affected paths.
-
-Simple questions can stop after reading. Implementation requests can continue
-through the whole loop. Specialist tools for transactional patchsets, work
-continuity, or reviewing externally executed agent work are used only when the
-task benefits from them.
-
-You normally do not need to select tools by name. The connector describes each
-of its 47 tools to ChatGPT, and the server checks every request independently. See
-[Tools and workflows](docs/TOOL_SURFACE.md) when you want to understand the
-available tool groups or ask ChatGPT to use a specific capability.
-
-## Reading Large Files And Many Files
-
-- `repo_fetch_file` streams UTF-8 text files up to 10 MiB on disk by default
-  (configurable up to 50 MiB). Each response is capped at 256 KB by default
-  (configurable up to 2 MiB). When a file or range is bigger, the response
-  includes `has_more` and `next_start_line` so ChatGPT can request the next
-  part. Reading lines 1000–1500 of a large file does not load the whole file
-  into memory.
-- `repo_read_many` reads selected files or globs in one call: up to 100 files
-  and 1.5 MB by default, configurable up to 250 files and 4 MiB. Glob discovery
-  can scan several pages of the tree. If one file is too large, only that file
-  is truncated and the rest of the batch still returns. When a batch has more
-  files than fit, `next_cursor` lets ChatGPT pick up where it stopped.
-- Binary files are detected on the first chunk. Secret-looking paths stay
-  blocked. Returned text goes through linear-time secret redaction, so large
-  reads cannot trigger slow regular-expression backtracking.
-
-## Read-Only Git Inspection
-
-`repo_git_inspect` answers history and state questions through 12 allowlisted
-read-only commands: `status`, `branch`, `tag`, `log`, `diff`, `commit_tree`,
-`file_tree`, `show`, `blame`, `rev_parse`, `merge_base`, and `shortlog`. It is
-available in every permission mode, including `read`.
-
-ChatGPT supplies structured fields, never raw Git arguments. The runner adds
-these protections:
-
-- runs without a shell and uses `--no-pager`, `--no-optional-locks`, and
-  disabled external diff, textconv, fsmonitor, and credential helpers;
-- rejects refs, patterns, and paths that begin with `-`, use pathspec magic,
-  traverse outside the repository, or target `.git/` internals;
-- keeps Git inside the approved repository root, with a minimal sanitized
-  environment, timeouts, and output limits;
-- leaves out secret-looking paths, blocks binary blobs, and redacts
-  secret-looking values from returned text.
-
-## Safety By Design
-
-- Only explicitly approved repository roots are accessible.
-- Every path is repo-relative and sandboxed against traversal and symlink escapes.
-- Writes are disabled until the repository opts in.
-- File changes are checked against allowed paths, denied paths, size limits,
-  stale-state guards, and secret patterns.
-- Validation uses configured profiles instead of arbitrary commands.
-- Read-only Git inspection uses a hardened runner without a shell or raw
-  arguments. It refuses flag injection and stays inside the repository root.
-- Read sizes are capped by validated limits, and returned text is
-  secret-redacted.
-- Git mutations operate on explicit paths and current reviewed state.
-- Push and deployment remain outside the server.
-
-For the full boundary, threat model, and approval behavior, read
-[Security](docs/SECURITY.md).
-
-## Common Commands
-
-| Command | Purpose |
-| --- | --- |
-| `npm run add -- <path>` | Approve a repository and choose a permission mode |
-| `npm run add -- <path> --mode <mode>` | Add a repository with an explicit `read`, `write`, or `ship` mode |
-| `npm run list` | List approved repositories |
-| `npm run remove -- <repo_id>` | Remove an approved repository |
-| `npm run doctor` | Check configuration, scripts, tunnel state, port use, and Git state |
-| `npm run connect` | Start the server and built-in ngrok connection flow |
-| `npm run connect:secure` | Start the server with the OpenAI Secure MCP Tunnel |
-| `npm run check:config` | Validate local configuration |
+Copy the printed MCP URL into ChatGPT Developer Mode connector settings. Need ngrok setup? See [Install ngrok from zero](docs/SETUP.md#install-ngrok-from-zero). For Cloudflare or the OpenAI Secure MCP Tunnel (`npm run connect:secure`), see [Connection options](docs/CONNECTION_OPTIONS.md).
 
 ## Configuration
 
-Local settings live in `config.local.json`, which you create from
-`config.example.json` and which Git ignores. The server (`npm run dev`,
-`npm start`, and `npm run connect`) automatically loads `./config.local.json`
-when `GPT_REPO_CONFIG` and `REPO_READER_CONFIG` are unset; set either variable
-to load a different config file (`PORT` is also respected by `npm run connect`).
-Relative repository `root` paths resolve relative to the config file's
-directory, and UTF-8 BOM config files are supported on Windows.
+- `npm run dev`, `npm start`, and `npm run connect` automatically load `./config.local.json` (git-ignored, created from `config.example.json`) when `GPT_REPO_CONFIG` and `REPO_READER_CONFIG` are unset.
+- Set `GPT_REPO_CONFIG=/path/to/config.json` to load a different config file (`PORT` is respected by `npm run connect`). Relative repository `root` paths resolve against the config directory.
+- Customize read budgets via the optional top-level `limits` block (`max_files`, `max_bytes_per_file`, `max_file_bytes`, `max_total_bytes`, `max_read_many_tree_pages`). Config validation is strict — run `npm run check:config` after editing. See [Setup & Read Limits](docs/SETUP.md#read-limits).
 
-The optional top-level `limits` block sets read budgets (and optional search,
-tree, diff, task-inventory, and project-brief limits):
+## Safety
 
-```json
-{
-  "repos": [],
-  "limits": {
-    "max_files": 100,
-    "max_bytes_per_file": 256000,
-    "max_file_bytes": 10485760,
-    "max_total_bytes": 1500000
-  }
-}
-```
+- **Approved roots only** — Repo-relative paths sandboxed against traversal and symlink escapes.
+- **Opt-in writes** — Read-only by default; edits enforce allowed/denied paths, size caps, stale-state checks, and secret guards.
+- **Hardened Git & reads** — Shell-free Git runner rejecting flag injection and `.git/` access, validated read limits, secret-path blocking, and linear-time secret redaction.
+- **No arbitrary execution or push** — Validation uses pre-approved profiles only; push and deploy remain outside the server.
 
-| Limit | Default | Maximum allowed |
-| --- | ---: | ---: |
-| `max_files` | 100 | 250 |
-| `max_bytes_per_file` | 256 KB | 2 MiB |
-| `max_total_bytes` | 1.5 MB | 4 MiB |
-| `max_file_bytes` | 10 MiB | 50 MiB |
-| `max_read_many_tree_pages` | 10 | 25 |
+Full threat model and guarantees: [Security](docs/SECURITY.md).
 
-The config is strict: unknown keys and values above a limit's maximum are
-rejected, so a typo cannot quietly fall back to a default. All configured
-`limits` fields are propagated to runtime services, and if a tool call asks for
-a larger value than the configured limit, the server clamps to the configured
-limit instead. Run `npm run check:config` after editing. See
-[Read limits](docs/SETUP.md#read-limits) for the full reference.
+## Docs
 
-## Documentation
-
-### Using GPT Repo MCP
-
-| Guide | When you need... |
-| --- | --- |
-| [Capability guide](docs/CAPABILITIES.md) | A user-oriented explanation of what ChatGPT can accomplish |
-| [Setup](docs/SETUP.md) | Installation and local configuration |
-| [ChatGPT connection](docs/CHATGPT_CONNECT.md) | Connector setup inside ChatGPT |
-| [Connection options](docs/CONNECTION_OPTIONS.md) | ngrok, Cloudflare, secure tunnel, and manual alternatives |
-| [Write workflows](docs/WRITE_WORKFLOWS.md) | Editing, validation, review, recovery, and local commits |
-| [Tools and workflows](docs/TOOL_SURFACE.md) | What each tool group enables and when ChatGPT uses it |
-| [Security model](docs/SECURITY.md) | What is protected, what leaves your machine, and what remains your responsibility |
-| [Error reference](docs/ERRORS.md) | Stable error codes and what they mean |
-| [External-agent protocol](docs/DELEGATION_ARTIFACTS.md) | Advanced review workflow when you separately operate an implementation agent |
-| [Migration guide](docs/MIGRATION.md) | Moving from 0.1.x to 0.2.0 |
-
-### Contributing And Extending
-
-See [Product principles](docs/PRODUCT.md), [Architecture](docs/ARCHITECTURE.md),
-[Contributing](CONTRIBUTING.md), [Quality](docs/QUALITY.md), the
-[technical terminology](docs/GLOSSARY.md), and the
-[release checklist](docs/RELEASE_CHECKLIST.md).
-
-## Requirements
-
-- Node.js 20 or newer
-- npm
-- Git
-- An HTTPS tunnel such as ngrok, or the supported secure tunnel flow
-- ChatGPT with Developer Mode access
-
-## Troubleshooting
-
-- **Unknown repository:** run `npm run list` and confirm the `repo_id`.
-- **Write blocked:** ask ChatGPT to use `repo_policy_explain` for the repository and path.
-- **Connector URL changed:** restart the connection and update ChatGPT with the new URL.
-- **Tunnel returns 502:** confirm the local server is running, check `/health`, and restart the tunnel.
-- **Tool schema looks stale:** refresh the connector and start a new ChatGPT conversation.
-
-For detailed diagnostics, see [Setup](docs/SETUP.md#common-failure-modes) and
-[Approval troubleshooting](docs/APPROVAL_TROUBLESHOOTING.md).
+- [Setup](docs/SETUP.md) — Installation, config, read limits, and troubleshooting
+- [ChatGPT Connection](docs/CHATGPT_CONNECT.md) — Connector setup inside ChatGPT
+- [Capabilities](docs/CAPABILITIES.md) — Example prompts and supported workflows
+- [Tool Surface](docs/TOOL_SURFACE.md) — Full reference of all 47 tools
+- [Security](docs/SECURITY.md) — Threat model, boundaries, and what leaves your machine
+- [Architecture](docs/ARCHITECTURE.md) — Server internals and design
+- [Write Workflows](docs/WRITE_WORKFLOWS.md) · [Connection Options](docs/CONNECTION_OPTIONS.md)
 
 ## License
 
